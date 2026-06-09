@@ -485,6 +485,12 @@ class PanelEssensplaner extends HTMLElement {
         res?.default_shopping_list_id || this._shoppingLists[0]?.id || null;
     } catch (e) {
       console.warn("Essensplaner: Einstellungen laden fehlgeschlagen", e);
+      this._shoppingLists = [];
+      this._notify(
+        "Einstellungen laden fehlgeschlagen: " + (e?.message || e) +
+          ". Integration neu laden und Panel mit Strg+F5 aktualisieren.",
+        true
+      );
     }
   }
 

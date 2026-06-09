@@ -32,6 +32,8 @@ _PANEL_REGISTERED = "panel_registered"
 _STATIC_REGISTERED = "static_registered"
 _LOVELACE_CARD_REGISTERED = "lovelace_card_registered"
 _WS_REGISTERED = "ws_registered"
+_PANEL_WS_VERSION = 2
+_PANEL_WS_VERSION_KEY = "panel_ws_version"
 
 
 def _panel_entries(hass: HomeAssistant) -> list[dict[str, str]]:
@@ -44,7 +46,11 @@ def _panel_entries(hass: HomeAssistant) -> list[dict[str, str]]:
 
 def _panel_settings(hass: HomeAssistant, entry) -> dict:
     """Return panel configuration for an entry."""
-    store = entry.runtime_data.store
+    runtime = getattr(entry, "runtime_data", None)
+    if runtime is None:
+        raise RuntimeError("Essensplaner is not fully loaded")
+    store = runtime.store
+    store.ensure_shopping_lists()
     shopping_lists = shopping_lists_for_panel(hass, entry)
     default_list_id = normalize_stored_target(
         entry.options.get(OPTION_DEFAULT_SHOPPING_LIST_ID), store
@@ -75,7 +81,8 @@ def async_setup_frontend(hass: HomeAssistant) -> None:
 @callback
 def _async_register_ws(hass: HomeAssistant) -> None:
     """Register websocket commands for the panel."""
-    if hass.data.setdefault(DOMAIN, {}).get(_WS_REGISTERED):
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    if domain_data.get(_PANEL_WS_VERSION_KEY) == _PANEL_WS_VERSION:
         return
 
     @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/config_entries"})
@@ -121,7 +128,17 @@ def _async_register_ws(hass: HomeAssistant) -> None:
         if entry is None:
             connection.send_error(msg["id"], "not_found", "Config entry not found")
             return
-        connection.send_result(msg["id"], _panel_settings(hass, entry))
+        try:
+            store = entry.runtime_data.store
+            if not store.get_shopping_lists():
+                store.ensure_shopping_lists()
+                await store._async_save()
+            settings = _panel_settings(hass, entry)
+        except Exception as err:  # noqa: BLE001
+            LOGGER.exception("Panel settings failed")
+            connection.send_error(msg["id"], "settings_failed", str(err))
+            return
+        connection.send_result(msg["id"], settings)
 
     @websocket_api.require_admin
     @websocket_api.websocket_command(
@@ -239,6 +256,7 @@ def _async_register_ws(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_search_recipes_online)
     websocket_api.async_register_command(hass, ws_preview_recipe_url)
     hass.data[DOMAIN][_WS_REGISTERED] = True
+    hass.data[DOMAIN][_PANEL_WS_VERSION_KEY] = _PANEL_WS_VERSION
 
 
 async def _async_register_static(hass: HomeAssistant, www_dir: Path) -> None:

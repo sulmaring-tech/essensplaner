@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from homeassistant.components.todo import DOMAIN as TODO_DOMAIN
 from homeassistant.helpers import entity_registry as er
 
-from .const import OPTION_DEFAULT_SHOPPING_LIST_ID
+from .const import LOGGER, OPTION_DEFAULT_SHOPPING_LIST_ID
 from .models import Ingredient, Recipe
 
 if TYPE_CHECKING:
@@ -101,13 +101,30 @@ def _bring_display_name(hass: HomeAssistant, entity_id: str, fallback: str) -> s
     return fallback or entity_id
 
 
+def _bring_registry_entries(entity_registry: er.EntityRegistry) -> list:
+    """Return Bring todo entities from the entity registry."""
+    entries_for_platform = getattr(er, "async_entries_for_platform", None)
+    if callable(entries_for_platform):
+        return list(entries_for_platform(entity_registry, BRING_PLATFORM))
+    return [
+        entry
+        for entry in entity_registry.entities.values()
+        if entry.platform == BRING_PLATFORM
+    ]
+
+
+def _todo_entity_ids(hass: HomeAssistant) -> list[str]:
+    """Return all todo entity ids."""
+    return hass.states.entity_ids(TODO_DOMAIN)
+
+
 def _bring_targets(hass: HomeAssistant) -> list[dict[str, Any]]:
     """Return Bring! todo lists for the panel."""
     entity_registry = er.async_get(hass)
     result: list[dict[str, Any]] = []
     seen: set[str] = set()
 
-    for entity_entry in er.async_entries_for_platform(entity_registry, BRING_PLATFORM):
+    for entity_entry in _bring_registry_entries(entity_registry):
         if entity_entry.domain != TODO_DOMAIN:
             continue
         seen.add(entity_entry.entity_id)
@@ -121,7 +138,7 @@ def _bring_targets(hass: HomeAssistant) -> list[dict[str, Any]]:
             }
         )
 
-    for entity_id in hass.states.async_entity_ids(TODO_DOMAIN):
+    for entity_id in _todo_entity_ids(hass):
         if entity_id in seen:
             continue
         entity_entry = entity_registry.async_get(entity_id)
@@ -144,7 +161,12 @@ def shopping_lists_for_panel(
     hass: HomeAssistant, entry: EssensplanerConfigEntry
 ) -> list[dict[str, Any]]:
     """Return all selectable shopping list targets."""
-    return _essensplaner_targets(hass, entry) + _bring_targets(hass)
+    result = _essensplaner_targets(hass, entry)
+    try:
+        result.extend(_bring_targets(hass))
+    except Exception as err:  # noqa: BLE001
+        LOGGER.warning("Bring shopping lists could not be loaded: %s", err)
+    return result
 
 
 def resolve_target(

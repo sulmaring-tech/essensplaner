@@ -60,7 +60,15 @@ class EssensplanerStore:
         else:
             self._data = self._create_default_data()
             await self._async_save()
+        if not self._data.shopping_lists:
+            self._data.shopping_lists.update(self._create_default_data().shopping_lists)
+            await self._async_save()
         return self._data
+
+    def ensure_shopping_lists(self) -> None:
+        """Ensure at least one shopping list exists in memory."""
+        if not self._data.shopping_lists:
+            self._data.shopping_lists.update(self._create_default_data().shopping_lists)
 
     def _create_default_data(self) -> EssensplanerData:
         """Create default household data."""
