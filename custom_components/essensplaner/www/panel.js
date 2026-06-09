@@ -27,6 +27,7 @@ class PanelEssensplaner extends HTMLElement {
     this._cachedEntries = [];
     this._entriesLoading = false;
     this._formDraft = null;
+    this._dataLoaded = false;
     this._onClick = this._handleClick.bind(this);
     this._onInput = this._handleInput.bind(this);
     this._onChange = this._handleChange.bind(this);
@@ -47,16 +48,12 @@ class PanelEssensplaner extends HTMLElement {
   }
 
   set hass(hass) {
-    const hadEntry = !!this._entryId;
     this._hass = hass;
     this._mergeEntries(this._panel?.config?.entries);
-    const entries = this._entries();
-    if (!this._entryId && entries.length) {
-      this._entryId = entries[0].entry_id;
-    }
-    if (this._entryId && !hadEntry) {
+    this._ensureEntryId();
+    if (this._entryId && !this._dataLoaded && !this._loading) {
       this._load();
-    } else if (!entries.length && !this._entriesLoading) {
+    } else if (!this._entryId && !this._entriesLoading) {
       this._fetchEntries().then(() => this._paint());
     } else if (!this._isEditing()) {
       this._paint();
@@ -72,10 +69,14 @@ class PanelEssensplaner extends HTMLElement {
   set panel(v) {
     this._panel = v;
     this._mergeEntries(v?.config?.entries);
-    if (!this._entryId && this._entries().length) {
-      this._entryId = this._entries()[0].entry_id;
-      if (this._hass) this._load();
-    }
+    this._ensureEntryId();
+    if (this._hass && this._entryId && !this._dataLoaded) this._load();
+  }
+
+  _ensureEntryId() {
+    if (this._entryId) return;
+    const entries = this._entries();
+    if (entries.length) this._entryId = entries[0].entry_id;
   }
 
   /* ── data ─────────────────────────────────────────── */
@@ -92,12 +93,36 @@ class PanelEssensplaner extends HTMLElement {
 
   _entries() {
     if (this._cachedEntries.length) return this._cachedEntries;
+    const fromEntities = this._entriesFromEntities();
+    if (fromEntities.length) return fromEntities;
     const raw = this._hass?.configEntries;
     if (!raw) return [];
-    const list = Array.isArray(raw) ? raw : Object.values(raw);
-    return list
-      .filter((e) => e.domain === "essensplaner")
-      .map((e) => ({ entry_id: e.entry_id || e.entryId, title: e.title || e.entry_id }));
+    if (Array.isArray(raw)) {
+      return raw
+        .filter((e) => e.domain === "essensplaner")
+        .map((e) => ({ entry_id: e.entry_id || e.entryId, title: e.title || e.entry_id }));
+    }
+    return Object.entries(raw)
+      .filter(([, e]) => e?.domain === "essensplaner")
+      .map(([id, e]) => ({
+        entry_id: e.entry_id || e.entryId || id,
+        title: e.title || id,
+      }));
+  }
+
+  _entriesFromEntities() {
+    const entities = this._hass?.entities;
+    if (!entities) return [];
+    const map = new Map();
+    for (const entity of Object.values(entities)) {
+      if (entity?.platform === "essensplaner" && entity?.config_entry_id) {
+        map.set(entity.config_entry_id, {
+          entry_id: entity.config_entry_id,
+          title: entity.config_entry_id,
+        });
+      }
+    }
+    return [...map.values()];
   }
 
   async _fetchEntries() {
@@ -118,6 +143,27 @@ class PanelEssensplaner extends HTMLElement {
     }
   }
 
+  _unwrapService(res) {
+    if (!res) return null;
+    if (res.response !== undefined) return res.response;
+    if (res.service_response !== undefined) return res.service_response;
+    return res;
+  }
+
+  _extractRecipes(data) {
+    const body = this._unwrapService(data);
+    if (Array.isArray(body)) return body;
+    if (Array.isArray(body?.recipes)) return body.recipes;
+    return [];
+  }
+
+  _extractMealplan(data) {
+    const body = this._unwrapService(data);
+    if (Array.isArray(body)) return body;
+    if (Array.isArray(body?.mealplan)) return body.mealplan;
+    return [];
+  }
+
   async _svc(service, data = {}, returnResponse = true) {
     if (!this._entryId) throw new Error("Kein Haushalt konfiguriert");
     const res = await this._hass.callService(
@@ -127,7 +173,7 @@ class PanelEssensplaner extends HTMLElement {
       true,
       returnResponse
     );
-    return returnResponse ? (res?.response ?? res) : res;
+    return returnResponse ? this._unwrapService(res) : res;
   }
 
   async _load() {
@@ -135,16 +181,22 @@ class PanelEssensplaner extends HTMLElement {
     this._loading = true;
     this._paint();
     try {
-      const range = this._weekRange();
-      const [r, m] = await Promise.all([
-        this._svc("get_recipes", { result_limit: 500 }),
-        this._svc("get_mealplan", { start_date: range.start, end_date: range.end }),
-      ]);
-      this._recipes = r?.recipes || [];
-      this._mealplan = m?.mealplan || [];
+      const r = await this._svc("get_recipes", { result_limit: 100 });
+      this._recipes = this._extractRecipes(r);
     } catch (e) {
-      this._notify("Fehler beim Laden: " + (e.message || e), true);
+      this._notify("Rezepte laden fehlgeschlagen: " + (e.message || e), true);
     }
+    try {
+      const range = this._weekRange();
+      const m = await this._svc("get_mealplan", {
+        start_date: range.start,
+        end_date: range.end,
+      });
+      this._mealplan = this._extractMealplan(m);
+    } catch (e) {
+      this._notify("Essensplan laden fehlgeschlagen: " + (e.message || e), true);
+    }
+    this._dataLoaded = true;
     this._loading = false;
     this._paint();
   }
@@ -152,7 +204,7 @@ class PanelEssensplaner extends HTMLElement {
   async _reloadPlan() {
     const range = this._weekRange();
     const m = await this._svc("get_mealplan", { start_date: range.start, end_date: range.end });
-    this._mealplan = m?.mealplan || [];
+    this._mealplan = this._extractMealplan(m);
     this._paint();
   }
 
@@ -396,6 +448,7 @@ class PanelEssensplaner extends HTMLElement {
       this._entryId = ev.target.value;
       this._selected = null;
       this._mode = "view";
+      this._dataLoaded = false;
       await this._load();
     }
   }

@@ -53,7 +53,9 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     """Register the Essensplaner web panel once."""
     _async_register_ws(hass)
 
+    entries = _panel_entries(hass)
     if hass.data.setdefault(DOMAIN, {}).get(_PANEL_REGISTERED):
+        hass.data[DOMAIN]["panel_entries"] = entries
         return
 
     www_dir = Path(__file__).parent / "www"
@@ -75,7 +77,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         js_url=PANEL_JS_URL,
         embed_iframe=False,
         require_admin=False,
-        config={"entries": _panel_entries(hass)},
+        config={"entries": entries},
     )
 
     hass.data[DOMAIN][_PANEL_REGISTERED] = True
