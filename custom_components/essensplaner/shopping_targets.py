@@ -142,6 +142,16 @@ def _essensplaner_targets(
     return result
 
 
+def _all_todo_entity_ids(
+    hass: HomeAssistant, entity_registry: er.EntityRegistry
+) -> set[str]:
+    """Return all known todo entity ids from registry and state machine."""
+    entity_ids = set(hass.states.entity_ids(TODO_DOMAIN))
+    for entity_entry in _todo_registry_entries(entity_registry):
+        entity_ids.add(entity_entry.entity_id)
+    return entity_ids
+
+
 def _external_todo_targets(
     hass: HomeAssistant,
     excluded_entity_ids: set[str],
@@ -150,43 +160,26 @@ def _external_todo_targets(
     entity_registry = er.async_get(hass)
     device_registry = dr.async_get(hass)
     result: list[dict[str, Any]] = []
-    seen: set[str] = set()
 
-    def append_entity(entity_entry: er.RegistryEntry) -> None:
-        entity_id = entity_entry.entity_id
-        if entity_id in excluded_entity_ids or entity_id in seen:
-            return
-        seen.add(entity_id)
+    for entity_id in sorted(_all_todo_entity_ids(hass, entity_registry)):
+        if entity_id in excluded_entity_ids:
+            continue
+        entity_entry = entity_registry.async_get(entity_id)
+        if entity_entry is not None:
+            name = _todo_entity_display_name(hass, entity_entry, device_registry)
+            source = entity_entry.platform or TARGET_TODO
+        else:
+            state = hass.states.get(entity_id)
+            name = state.name if state is not None else entity_id
+            source = TARGET_TODO
         result.append(
             {
                 "id": encode_target(TARGET_TODO, entity_id),
-                "name": _todo_entity_display_name(hass, entity_entry, device_registry),
+                "name": name,
                 "entity_id": entity_id,
-                "source": entity_entry.platform or TARGET_TODO,
+                "source": source,
             }
         )
-
-    for entity_entry in _todo_registry_entries(entity_registry):
-        append_entity(entity_entry)
-
-    for entity_id in hass.states.entity_ids(TODO_DOMAIN):
-        if entity_id in excluded_entity_ids or entity_id in seen:
-            continue
-        entity_entry = entity_registry.async_get(entity_id)
-        if entity_entry is None:
-            state = hass.states.get(entity_id)
-            name = state.name if state is not None else entity_id
-            seen.add(entity_id)
-            result.append(
-                {
-                    "id": encode_target(TARGET_TODO, entity_id),
-                    "name": name,
-                    "entity_id": entity_id,
-                    "source": TARGET_TODO,
-                }
-            )
-            continue
-        append_entity(entity_entry)
 
     LOGGER.debug("Found %d external todo list(s)", len(result))
     return sorted(result, key=lambda item: (item["source"], item["name"].casefold()))

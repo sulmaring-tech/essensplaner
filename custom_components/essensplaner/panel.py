@@ -32,7 +32,7 @@ _PANEL_REGISTERED = "panel_registered"
 _STATIC_REGISTERED = "static_registered"
 _LOVELACE_CARD_REGISTERED = "lovelace_card_registered"
 _WS_REGISTERED = "ws_registered"
-_PANEL_WS_VERSION = 2
+_PANEL_WS_VERSION = 3
 _PANEL_WS_VERSION_KEY = "panel_ws_version"
 
 

@@ -472,6 +472,46 @@ class PanelEssensplaner extends HTMLElement {
     return `${parts[0].padStart(2, "0")}:${parts[1].padStart(2, "0")}`;
   }
 
+  _enrichShoppingListsFromHass(apiLists) {
+    const lists = Array.isArray(apiLists) ? [...apiLists] : [];
+    const knownEntities = new Set(lists.map((l) => l.entity_id).filter(Boolean));
+    const knownIds = new Set(lists.map((l) => l.id));
+
+    const addTodo = (entityId, name, platform) => {
+      if (!entityId?.startsWith("todo.") || knownEntities.has(entityId)) return;
+      const id = `todo:${entityId}`;
+      if (knownIds.has(id)) return;
+      knownEntities.add(entityId);
+      knownIds.add(id);
+      lists.push({
+        id,
+        name: name || entityId,
+        entity_id: entityId,
+        source: platform || "todo",
+      });
+    };
+
+    const entities = this._hass?.entities;
+    if (entities) {
+      for (const entity of Object.values(entities)) {
+        if (!entity?.entity_id?.startsWith("todo.")) continue;
+        addTodo(entity.entity_id, entity.name, entity.platform);
+      }
+    }
+
+    for (const [entityId, state] of Object.entries(this._hass?.states || {})) {
+      if (!entityId.startsWith("todo.")) continue;
+      const meta = entities?.[entityId];
+      addTodo(
+        entityId,
+        state?.attributes?.friendly_name || meta?.name || entityId,
+        meta?.platform
+      );
+    }
+
+    return lists;
+  }
+
   async _loadPanelSettings() {
     if (!this._entryId || !this._hass) return;
     try {
@@ -480,17 +520,19 @@ class PanelEssensplaner extends HTMLElement {
         entry_id: this._entryId,
       });
       this._mealTimes = res?.meal_times || {};
-      this._shoppingLists = res?.shopping_lists || [];
+      this._shoppingLists = this._enrichShoppingListsFromHass(res?.shopping_lists || []);
       this._defaultShoppingListId =
         res?.default_shopping_list_id || this._shoppingLists[0]?.id || null;
     } catch (e) {
       console.warn("Essensplaner: Einstellungen laden fehlgeschlagen", e);
-      this._shoppingLists = [];
-      this._notify(
-        "Einstellungen laden fehlgeschlagen: " + (e?.message || e) +
-          ". Integration neu laden und Panel mit Strg+F5 aktualisieren.",
-        true
-      );
+      this._shoppingLists = this._enrichShoppingListsFromHass([]);
+      if (!this._shoppingLists.length) {
+        this._notify(
+          "Einstellungen laden fehlgeschlagen: " + (e?.message || e) +
+            ". Integration neu laden und Panel mit Strg+F5 aktualisieren.",
+          true
+        );
+      }
     }
   }
 
@@ -1226,6 +1268,7 @@ class PanelEssensplaner extends HTMLElement {
   }
 
   _renderShoppingListSelect() {
+    this._shoppingLists = this._enrichShoppingListsFromHass(this._shoppingLists);
     if (!this._shoppingLists.length) {
       return `<p class="muted">Keine Einkaufsliste vorhanden. Essensplaner- oder To-do-Listen in Home Assistant einrichten.</p>`;
     }
