@@ -382,6 +382,71 @@ class PanelEssensplaner extends HTMLElement {
     return this.querySelector(`[name="${field}"]`)?.value ?? "";
   }
 
+  _recipeImage(recipe) {
+    const url = recipe?.image_url;
+    return url && String(url).trim() ? String(url).trim() : null;
+  }
+
+  _renderRecipeThumb(recipe, size = "md") {
+    const url = this._recipeImage(recipe);
+    if (url) {
+      return `<img class="recipe-thumb ${size}" src="${this._esc(url)}" alt="" loading="lazy" referrerpolicy="no-referrer">`;
+    }
+    return `<div class="recipe-thumb placeholder ${size}" aria-hidden="true"><ha-icon icon="mdi:food"></ha-icon></div>`;
+  }
+
+  _formatIngredient(item) {
+    if (!item) return "";
+    if (typeof item === "string") return item;
+    const parts = [];
+    if (item.quantity != null && item.quantity !== "") {
+      parts.push(String(item.quantity).replace(".", ","));
+    }
+    if (item.unit) parts.push(item.unit);
+    if (item.name) parts.push(item.name);
+    let text = parts.join(" ").trim();
+    if (item.note) text += ` (${item.note})`;
+    return text || "";
+  }
+
+  _formatDuration(minutes) {
+    if (!minutes) return null;
+    const mins = Number(minutes);
+    if (Number.isNaN(mins) || mins <= 0) return null;
+    if (mins < 60) return `${mins} Min.`;
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return m ? `${h} Std. ${m} Min.` : `${h} Std.`;
+  }
+
+  _renderMetaChips(recipe) {
+    const chips = [];
+    if (recipe.servings) {
+      chips.push(`<span class="meta-chip"><ha-icon icon="mdi:account-group"></ha-icon>${this._esc(recipe.servings)}</span>`);
+    }
+    const prep = this._formatDuration(recipe.prep_time);
+    if (prep) {
+      chips.push(`<span class="meta-chip"><ha-icon icon="mdi:knife"></ha-icon>${prep}</span>`);
+    }
+    const cook = this._formatDuration(recipe.cook_time);
+    if (cook) {
+      chips.push(`<span class="meta-chip"><ha-icon icon="mdi:stove"></ha-icon>${cook}</span>`);
+    }
+    for (const tag of (recipe.tags || []).slice(0, 4)) {
+      chips.push(`<span class="meta-chip tag">${this._esc(tag)}</span>`);
+    }
+    return chips.length ? `<div class="meta-chips">${chips.join("")}</div>` : "";
+  }
+
+  _recipeSummary(recipe) {
+    const parts = [];
+    if (recipe.servings) parts.push(recipe.servings);
+    const prep = this._formatDuration(recipe.prep_time);
+    const cook = this._formatDuration(recipe.cook_time);
+    if (prep || cook) parts.push([prep, cook].filter(Boolean).join(" + "));
+    return parts.join(" · ");
+  }
+
   /* ── actions ──────────────────────────────────────── */
 
   async _import() {
@@ -404,14 +469,17 @@ class PanelEssensplaner extends HTMLElement {
   async _saveRecipe() {
     const name = this._formVal("name").trim();
     if (!name) { this._notify("Bitte einen Namen eingeben", true); return; }
+    const imageUrl = this._formVal("image_url").trim();
     const payload = {
       name,
       description: this._formVal("description").trim(),
       ingredients: this._formVal("ingredients").split("\n").map((s) => s.trim()).filter(Boolean),
       instructions: this._formVal("instructions").split("\n").map((s) => s.trim()).filter(Boolean),
+      image_url: imageUrl || "",
     };
     this._loading = true;
     this._paint();
+    const editId = this._selected?.id;
     try {
       if (this._mode === "edit" && this._selected) {
         await this._svc("update_recipe", { recipe_id: this._selected.id, ...payload }, true);
@@ -422,8 +490,12 @@ class PanelEssensplaner extends HTMLElement {
       }
       this._formDraft = null;
       this._mode = "view";
-      this._selected = null;
       await this._load();
+      if (editId) {
+        this._selected = this._recipes.find((r) => r.id === editId) || null;
+      } else {
+        this._selected = null;
+      }
     } catch (e) {
       this._loading = false;
       this._notify("Speichern fehlgeschlagen: " + (e.message || e), true);
@@ -515,8 +587,8 @@ class PanelEssensplaner extends HTMLElement {
     list.innerHTML = picks.length
       ? picks.map((r) => `
           <button type="button" class="pick-item" data-a="plan-pick" data-id="${r.id}">
-            <span class="pick-icon">🍽</span>
-            <span>${this._esc(r.name)}</span>
+            ${this._renderRecipeThumb(r, "xs")}
+            <span class="pick-name">${this._esc(r.name)}</span>
           </button>`).join("")
       : `<p class="muted">Kein Rezept gefunden</p>`;
   }
@@ -595,32 +667,42 @@ class PanelEssensplaner extends HTMLElement {
   /* ── render blocks ────────────────────────────────── */
 
   _renderForm(r) {
-    const base = r || { name: "", description: "", ingredients: [], instructions: [] };
+    const base = r || { name: "", description: "", ingredients: [], instructions: [], image_url: "" };
     const data = {
       name: base.name || "",
       description: base.description || "",
       ingredients: base.ingredients || [],
       instructions: base.instructions || [],
+      image_url: base.image_url || "",
     };
     if (this._formDraft) {
       if (this._formDraft.name !== undefined) data.name = this._formDraft.name;
       if (this._formDraft.description !== undefined) data.description = this._formDraft.description;
       if (this._formDraft.ingredients !== undefined) data.ingredients = this._formDraft.ingredients.split("\n");
       if (this._formDraft.instructions !== undefined) data.instructions = this._formDraft.instructions.split("\n");
+      if (this._formDraft.image_url !== undefined) data.image_url = this._formDraft.image_url;
     }
+    const previewUrl = data.image_url?.trim();
     const title = this._mode === "edit" ? "Rezept bearbeiten" : "Neues Rezept";
     return `
       <div class="form-card">
         <h3>${title}</h3>
+        <div class="form-preview">
+          ${previewUrl
+            ? `<img class="form-preview-img" src="${this._esc(previewUrl)}" alt="" referrerpolicy="no-referrer">`
+            : `<div class="form-preview-placeholder"><ha-icon icon="mdi:image-plus"></ha-icon><span>Bild-Vorschau</span></div>`}
+        </div>
         <label>Name<input class="inp" name="name" value="${this._esc(data.name)}" autofocus></label>
+        <label>Bild-URL <span class="hint">(wird beim Import oft automatisch gesetzt)</span>
+          <input class="inp" name="image_url" type="url" placeholder="https://…" value="${this._esc(data.image_url || "")}"></label>
         <label>Beschreibung<textarea class="inp" name="description" rows="2">${this._esc(data.description || "")}</textarea></label>
         <label>Zutaten <span class="hint">(eine pro Zeile)</span>
-          <textarea class="inp" name="ingredients" rows="6">${this._esc((data.ingredients || []).map((i) => i.name || i).join("\n"))}</textarea></label>
+          <textarea class="inp" name="ingredients" rows="6">${this._esc((data.ingredients || []).map((i) => this._formatIngredient(i)).join("\n"))}</textarea></label>
         <label>Zubereitung <span class="hint">(ein Schritt pro Zeile)</span>
           <textarea class="inp" name="instructions" rows="6">${this._esc((data.instructions || []).join("\n"))}</textarea></label>
         <div class="btn-row">
-          <button class="btn primary" data-a="save">Speichern</button>
-          <button class="btn" data-a="cancel">Abbrechen</button>
+          <button type="button" class="btn primary" data-a="save">Speichern</button>
+          <button type="button" class="btn" data-a="cancel">Abbrechen</button>
         </div>
       </div>`;
   }
@@ -633,36 +715,65 @@ class PanelEssensplaner extends HTMLElement {
     if (!r) {
       return `<div class="empty-detail">
         <ha-icon icon="mdi:book-open-page-variant"></ha-icon>
-        <p>Rezept aus der Liste wählen oder neu anlegen</p>
+        <p><strong>Rezept wählen</strong></p>
+        <p class="muted">Links ein Gericht anklicken oder oben per URL importieren.</p>
       </div>`;
     }
-    const ings = (r.ingredients || []).map((i) => `<li>${this._esc(i.name || i)}</li>`).join("");
-    const steps = (r.instructions || []).map((s) => `<li>${this._esc(s)}</li>`).join("");
+    const ings = (r.ingredients || [])
+      .map((i) => `<li>${this._esc(this._formatIngredient(i))}</li>`)
+      .join("");
+    const steps = (r.instructions || [])
+      .map((s, idx) => `<li><span class="step-num">${idx + 1}</span><span class="step-text">${this._esc(s)}</span></li>`)
+      .join("");
+    const source = r.source_url
+      ? `<a class="source-link" href="${this._esc(r.source_url)}" target="_blank" rel="noopener">Originalrezept öffnen</a>`
+      : "";
     return `
-      <div class="detail-card">
-        <h2>${this._esc(r.name)}</h2>
-        ${r.description ? `<p class="desc">${this._esc(r.description)}</p>` : ""}
-        <section><h4>Zutaten</h4><ul>${ings || "<li class='muted'>–</li>"}</ul></section>
-        <section><h4>Zubereitung</h4><ol>${steps || "<li class='muted'>–</li>"}</ol></section>
-        <div class="btn-row">
-          <button class="btn" data-a="edit">Bearbeiten</button>
-          <button class="btn" data-a="shop" data-id="${r.id}">Zur Einkaufsliste</button>
-          <button class="btn danger" data-a="delete" data-id="${r.id}">Löschen</button>
+      <article class="detail-card">
+        <div class="detail-hero">
+          ${this._renderRecipeThumb(r, "hero")}
         </div>
-      </div>`;
+        <div class="detail-body">
+          <header class="detail-header">
+            <h2>${this._esc(r.name)}</h2>
+            ${this._renderMetaChips(r)}
+          </header>
+          ${r.description ? `<p class="desc">${this._esc(r.description)}</p>` : ""}
+          ${source}
+          <div class="detail-sections">
+            <section class="detail-panel">
+              <h4><ha-icon icon="mdi:basket"></ha-icon> Zutaten</h4>
+              <ul class="ingredient-list">${ings || "<li class='muted'>Keine Zutaten</li>"}</ul>
+            </section>
+            <section class="detail-panel">
+              <h4><ha-icon icon="mdi:pot-steam"></ha-icon> Zubereitung</h4>
+              <ol class="step-list">${steps || "<li class='muted'>Keine Schritte</li>"}</ol>
+            </section>
+          </div>
+          <div class="btn-row detail-actions">
+            <button type="button" class="btn" data-a="edit"><ha-icon icon="mdi:pencil"></ha-icon> Bearbeiten</button>
+            <button type="button" class="btn" data-a="shop" data-id="${r.id}"><ha-icon icon="mdi:cart-plus"></ha-icon> Einkaufsliste</button>
+            <button type="button" class="btn danger" data-a="delete" data-id="${r.id}"><ha-icon icon="mdi:delete"></ha-icon> Löschen</button>
+          </div>
+        </div>
+      </article>`;
   }
 
   _renderRecipesTab() {
     const list = this._filtered();
     const cards = list.length
-      ? list.map((r) => `
-          <div class="recipe-card ${this._selected?.id === r.id ? "on" : ""}" data-a="select" data-id="${r.id}">
-            <ha-icon icon="mdi:food"></ha-icon>
+      ? list.map((r) => {
+          const summary = this._recipeSummary(r);
+          return `
+          <button type="button" class="recipe-card ${this._selected?.id === r.id ? "on" : ""}" data-a="select" data-id="${r.id}">
+            ${this._renderRecipeThumb(r, "sm")}
             <div class="rc-body">
               <strong>${this._esc(r.name)}</strong>
-              ${r.description ? `<span>${this._esc(r.description).slice(0, 60)}</span>` : ""}
+              ${summary ? `<span class="rc-meta">${this._esc(summary)}</span>` : ""}
+              ${r.description ? `<span class="rc-desc">${this._esc(r.description).slice(0, 72)}${r.description.length > 72 ? "…" : ""}</span>` : ""}
             </div>
-          </div>`).join("")
+          </button>`;
+        }).join("")
       : `<p class="muted center">Noch keine Rezepte – URL importieren oder „Neues Rezept“.</p>`;
 
     return `
@@ -762,8 +873,8 @@ class PanelEssensplaner extends HTMLElement {
     const list = picks.length
       ? picks.map((r) => `
           <button type="button" class="pick-item" data-a="plan-pick" data-id="${r.id}">
-            <span class="pick-icon">🍽</span>
-            <span>${this._esc(r.name)}</span>
+            ${this._renderRecipeThumb(r, "xs")}
+            <span class="pick-name">${this._esc(r.name)}</span>
           </button>`).join("")
       : `<p class="muted">Kein Rezept gefunden</p>`;
 
@@ -881,36 +992,104 @@ PanelEssensplaner._CSS = `
     padding: 4px 10px; border-radius: 12px; font-size: 0.85rem;
     background: var(--primary-color); color: var(--text-primary-color, #fff);
   }
-  .split { display: grid; grid-template-columns: 340px 1fr; gap: 20px; min-height: 480px; }
-  @media (max-width: 900px) { .split { grid-template-columns: 1fr; } }
+  .split { display: grid; grid-template-columns: minmax(280px, 360px) 1fr; gap: 20px; min-height: 520px; align-items: start; }
+  @media (max-width: 960px) { .split { grid-template-columns: 1fr; } }
   .recipe-list {
-    display: flex; flex-direction: column; gap: 6px;
-    max-height: 70vh; overflow-y: auto; padding-right: 4px;
+    display: flex; flex-direction: column; gap: 8px;
+    max-height: 75vh; overflow-y: auto; padding-right: 4px;
   }
   .recipe-card {
-    display: flex; gap: 12px; align-items: flex-start;
-    padding: 12px 14px; border-radius: 10px; cursor: pointer;
+    display: flex; gap: 12px; align-items: center; width: 100%; text-align: left;
+    padding: 10px; border-radius: 12px; cursor: pointer;
     background: var(--card-background-color, #fff);
     border: 1px solid var(--divider-color, #e8e8e8);
-    transition: border-color .15s, box-shadow .15s;
+    transition: border-color .15s, box-shadow .15s, transform .12s;
+    font: inherit; color: inherit;
   }
-  .recipe-card:hover { border-color: var(--primary-color); box-shadow: 0 2px 8px rgba(0,0,0,.06); }
-  .recipe-card.on { border-color: var(--primary-color); background: var(--secondary-background-color, #f0f7ff); }
-  .recipe-card ha-icon { color: var(--primary-color); flex-shrink: 0; margin-top: 2px; }
-  .rc-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-  .rc-body strong { font-size: 0.95rem; }
-  .rc-body span { font-size: 0.82rem; color: var(--secondary-text-color); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .recipe-card:hover { border-color: var(--primary-color); box-shadow: 0 4px 14px rgba(0,0,0,.07); transform: translateY(-1px); }
+  .recipe-card.on { border-color: var(--primary-color); background: color-mix(in srgb, var(--primary-color) 8%, var(--card-background-color, #fff)); box-shadow: 0 2px 10px rgba(0,0,0,.06); }
+  .recipe-thumb {
+    object-fit: cover; border-radius: 10px; flex-shrink: 0; background: var(--secondary-background-color, #f0f0f0);
+  }
+  .recipe-thumb.sm { width: 72px; height: 72px; }
+  .recipe-thumb.xs { width: 44px; height: 44px; border-radius: 8px; }
+  .recipe-thumb.hero { width: 100%; height: 100%; border-radius: 0; min-height: 220px; max-height: 320px; }
+  .recipe-thumb.placeholder {
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, color-mix(in srgb, var(--primary-color) 16%, #f5f5f5), var(--secondary-background-color, #eee));
+    color: var(--primary-color);
+  }
+  .recipe-thumb.placeholder ha-icon { --mdc-icon-size: 28px; opacity: .7; }
+  .recipe-thumb.placeholder.hero ha-icon { --mdc-icon-size: 56px; }
+  .recipe-thumb.placeholder.sm ha-icon { --mdc-icon-size: 24px; }
+  .rc-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+  .rc-body strong { font-size: 0.95rem; line-height: 1.3; }
+  .rc-meta { font-size: 0.78rem; color: var(--primary-color); font-weight: 500; }
+  .rc-desc { font-size: 0.8rem; color: var(--secondary-text-color); line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .recipe-detail { min-width: 0; }
   .detail-card, .form-card {
     background: var(--card-background-color, #fff);
-    border-radius: 12px; padding: 24px;
+    border-radius: 14px; overflow: hidden;
     border: 1px solid var(--divider-color, #e8e8e8);
-    box-shadow: 0 1px 4px rgba(0,0,0,.04);
+    box-shadow: 0 2px 12px rgba(0,0,0,.05);
   }
-  .detail-card h2, .form-card h3 { margin: 0 0 12px; }
-  .desc { color: var(--secondary-text-color); line-height: 1.5; }
-  .detail-card section { margin-top: 20px; }
-  .detail-card h4 { margin: 0 0 8px; font-size: 0.9rem; text-transform: uppercase; letter-spacing: .04em; color: var(--secondary-text-color); }
-  .detail-card ul, .detail-card ol { margin: 0; padding-left: 20px; line-height: 1.6; }
+  .detail-hero { aspect-ratio: 16 / 9; max-height: 320px; overflow: hidden; background: var(--secondary-background-color, #eee); }
+  .detail-body { padding: 20px 24px 24px; }
+  .detail-header { margin-bottom: 12px; }
+  .detail-header h2 { margin: 0 0 10px; font-size: 1.5rem; line-height: 1.25; }
+  .meta-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .meta-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 5px 10px; border-radius: 999px; font-size: 0.8rem;
+    background: var(--secondary-background-color, #f5f5f5); color: var(--secondary-text-color);
+  }
+  .meta-chip ha-icon { --mdc-icon-size: 16px; }
+  .meta-chip.tag { background: color-mix(in srgb, var(--primary-color) 12%, transparent); color: var(--primary-color); }
+  .desc { color: var(--secondary-text-color); line-height: 1.55; margin: 0 0 12px; }
+  .source-link { display: inline-block; margin-bottom: 16px; font-size: 0.85rem; color: var(--primary-color); text-decoration: none; }
+  .source-link:hover { text-decoration: underline; }
+  .detail-sections {
+    display: grid; grid-template-columns: 1fr 1.2fr; gap: 16px; margin-top: 8px;
+  }
+  @media (max-width: 800px) { .detail-sections { grid-template-columns: 1fr; } }
+  .detail-panel {
+    padding: 16px; border-radius: 12px;
+    background: var(--secondary-background-color, #fafafa);
+    border: 1px solid var(--divider-color, #eee);
+  }
+  .detail-panel h4 {
+    display: flex; align-items: center; gap: 8px; margin: 0 0 12px;
+    font-size: 0.88rem; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--secondary-text-color);
+  }
+  .detail-panel h4 ha-icon { --mdc-icon-size: 18px; color: var(--primary-color); }
+  .ingredient-list, .step-list { margin: 0; padding: 0; list-style: none; line-height: 1.55; }
+  .ingredient-list li { padding: 7px 0; border-bottom: 1px solid var(--divider-color, #e8e8e8); font-size: 0.92rem; }
+  .ingredient-list li:last-child { border-bottom: none; }
+  .step-list li { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--divider-color, #e8e8e8); font-size: 0.92rem; }
+  .step-list li:last-child { border-bottom: none; }
+  .step-num {
+    flex-shrink: 0; width: 26px; height: 26px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--primary-color); color: var(--text-primary-color, #fff);
+    font-size: 0.78rem; font-weight: 600;
+  }
+  .step-text { flex: 1; padding-top: 3px; }
+  .detail-actions { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--divider-color, #e8e8e8); }
+  .detail-actions .btn ha-icon { --mdc-icon-size: 18px; }
+  .form-card { padding: 24px; }
+  .form-card h3 { margin: 0 0 16px; }
+  .form-preview {
+    margin-bottom: 16px; border-radius: 12px; overflow: hidden;
+    aspect-ratio: 16 / 9; max-height: 200px; background: var(--secondary-background-color, #f5f5f5);
+    border: 1px dashed var(--divider-color, #ccc);
+  }
+  .form-preview-img { width: 100%; height: 100%; object-fit: cover; }
+  .form-preview-placeholder {
+    height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 8px; color: var(--secondary-text-color); font-size: 0.85rem;
+  }
+  .form-preview-placeholder ha-icon { --mdc-icon-size: 36px; opacity: .5; }
   .form-card label { display: block; margin-bottom: 14px; font-size: 0.9rem; font-weight: 500; }
   .form-card textarea { resize: vertical; }
   .hint { font-weight: 400; color: var(--secondary-text-color); font-size: 0.8rem; }
@@ -999,7 +1178,7 @@ PanelEssensplaner._CSS = `
     font: inherit; text-align: left; width: 100%;
   }
   .pick-item:hover { border-color: var(--primary-color); background: var(--secondary-background-color); }
-  .pick-icon { flex-shrink: 0; width: 1.25rem; text-align: center; }
+  .pick-name { flex: 1; min-width: 0; text-align: left; }
   .toast {
     position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
     padding: 12px 20px; border-radius: 10px; z-index: 200;

@@ -24,6 +24,7 @@ from .const import (
     ATTR_END_DATE,
     ATTR_END_TIME,
     ATTR_ENTRY_TYPE,
+    ATTR_IMAGE_URL,
     ATTR_INCLUDE_TAGS,
     ATTR_INGREDIENTS,
     ATTR_INSTRUCTIONS,
@@ -104,6 +105,7 @@ SERVICE_CREATE_RECIPE_SCHEMA = vol.Schema(
         vol.Optional(ATTR_INSTRUCTIONS): [str],
         vol.Optional(ATTR_TAGS): [str],
         vol.Optional(ATTR_CATEGORIES): [str],
+        vol.Optional(ATTR_IMAGE_URL): vol.Any(cv.url, ""),
     }
 )
 
@@ -173,6 +175,7 @@ SERVICE_UPDATE_RECIPE_SCHEMA = vol.Schema(
         vol.Optional(ATTR_INSTRUCTIONS): [str],
         vol.Optional(ATTR_TAGS): [str],
         vol.Optional(ATTR_CATEGORIES): [str],
+        vol.Optional(ATTR_IMAGE_URL): vol.Any(cv.url, ""),
     }
 )
 
@@ -318,6 +321,7 @@ async def _async_create_recipe(call: ServiceCall) -> ServiceResponse:
         instructions=call.data.get(ATTR_INSTRUCTIONS, []),
         tags=call.data.get(ATTR_TAGS, []),
         categories=call.data.get(ATTR_CATEGORIES, []),
+        image_url=call.data.get(ATTR_IMAGE_URL) or None,
     )
     recipe = await store.async_add_recipe(recipe)
     await _async_refresh_all(entry)
@@ -442,6 +446,9 @@ async def _async_update_recipe(call: ServiceCall) -> ServiceResponse:
         recipe.tags = call.data[ATTR_TAGS]
     if ATTR_CATEGORIES in call.data:
         recipe.categories = call.data[ATTR_CATEGORIES]
+    if ATTR_IMAGE_URL in call.data:
+        image_url = call.data[ATTR_IMAGE_URL]
+        recipe.image_url = image_url or None
 
     recipe = await store.async_add_recipe(recipe)
     await _async_refresh_all(entry)

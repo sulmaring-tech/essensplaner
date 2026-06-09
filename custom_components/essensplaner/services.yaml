@@ -86,6 +86,10 @@ create_recipe:
     categories:
       selector:
         text:
+    image_url:
+      example: "https://example.com/rezept.jpg"
+      selector:
+        text:
 
 delete_recipe:
   fields:
@@ -230,6 +234,10 @@ update_recipe:
       selector:
         text:
     categories:
+      selector:
+        text:
+    image_url:
+      example: "https://example.com/rezept.jpg"
       selector:
         text:
 

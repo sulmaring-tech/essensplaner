@@ -32,6 +32,7 @@ ATTR_CATEGORIES = "categories"
 ATTR_COOKBOOK_ID = "cookbook_id"
 ATTR_START_TIME = "start_time"
 ATTR_END_TIME = "end_time"
+ATTR_IMAGE_URL = "image_url"
 
 DEFAULT_SHOPPING_LIST_NAME = "Einkaufsliste"
 
