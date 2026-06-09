@@ -94,8 +94,8 @@ DEFAULT_VISIBLE_MEAL_TYPES: tuple[str, ...] = (
 MEALPLAN_ENTRY_TYPES = [
     MealplanEntryType.BREAKFAST,
     MealplanEntryType.LUNCH,
-    MealplanEntryType.DINNER,
     MealplanEntryType.SIDE_LUNCH,
+    MealplanEntryType.DINNER,
     MealplanEntryType.SIDE_DINNER,
     MealplanEntryType.DESSERT,
     MealplanEntryType.DRINK,

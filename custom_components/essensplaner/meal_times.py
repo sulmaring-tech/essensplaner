@@ -13,9 +13,9 @@ from .models import MealplanEntry
 DEFAULT_MEAL_TIMES: dict[str, tuple[str, str]] = {
     MealplanEntryType.BREAKFAST: ("07:00", "08:00"),
     MealplanEntryType.LUNCH: ("12:00", "13:00"),
+    MealplanEntryType.SIDE_LUNCH: ("12:30", "13:00"),
     MealplanEntryType.DINNER: ("18:00", "19:30"),
-    MealplanEntryType.SIDE_LUNCH: ("12:00", "12:30"),
-    MealplanEntryType.SIDE_DINNER: ("18:00", "18:30"),
+    MealplanEntryType.SIDE_DINNER: ("19:00", "19:30"),
     MealplanEntryType.DESSERT: ("19:30", "20:00"),
     MealplanEntryType.DRINK: ("10:00", "10:15"),
     MealplanEntryType.SNACK: ("15:00", "15:30"),

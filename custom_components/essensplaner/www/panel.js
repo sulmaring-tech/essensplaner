@@ -3,8 +3,8 @@
 const ALL_MEALS = [
   { id: "breakfast", label: "Frühstück", icon: "mdi:coffee" },
   { id: "lunch", label: "Mittagessen", icon: "mdi:silverware-fork-knife" },
-  { id: "dinner", label: "Abendessen", icon: "mdi:food-turkey" },
   { id: "side_lunch", label: "Beilage (Mittag)", icon: "mdi:food-variant" },
+  { id: "dinner", label: "Abendessen", icon: "mdi:food-turkey" },
   { id: "side_dinner", label: "Beilage (Abend)", icon: "mdi:food-variant" },
   { id: "dessert", label: "Dessert", icon: "mdi:cupcake" },
   { id: "drink", label: "Getränk", icon: "mdi:glass-cocktail" },
