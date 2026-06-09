@@ -9,7 +9,13 @@ from typing import TYPE_CHECKING
 
 from homeassistant.helpers.storage import Store
 
-from .const import DEFAULT_SHOPPING_LIST_NAME, LOGGER, STORAGE_KEY, STORAGE_VERSION
+from .const import (
+    DEFAULT_SHOPPING_LIST_NAME,
+    LOGGER,
+    OPTION_DEFAULT_SHOPPING_LIST_ID,
+    STORAGE_KEY,
+    STORAGE_VERSION,
+)
 from .models import (
     Cookbook,
     EssensplanerData,
@@ -258,19 +264,34 @@ class EssensplanerStore:
             self._data.shopping_items.pop(item_id, None)
             await self._async_save()
 
+    def resolve_shopping_list_id(
+        self, list_id: str | None, options: dict | None = None
+    ) -> str:
+        """Return shopping list id from explicit id, options, or default."""
+        if list_id and list_id in self._data.shopping_lists:
+            return list_id
+        if options:
+            configured = options.get(OPTION_DEFAULT_SHOPPING_LIST_ID)
+            if configured and configured in self._data.shopping_lists:
+                return configured
+        if not self._data.shopping_lists:
+            default = self._create_default_data()
+            self._data.shopping_lists.update(default.shopping_lists)
+        return next(iter(self._data.shopping_lists))
+
     async def async_add_recipe_ingredients_to_list(
-        self, recipe_id: str, list_id: str | None = None
+        self,
+        recipe_id: str,
+        list_id: str | None = None,
+        *,
+        options: dict | None = None,
     ) -> list[ShoppingItem]:
         """Add all recipe ingredients to a shopping list."""
         recipe = self.find_recipe(recipe_id)
         if not recipe:
             raise ValueError(f"Recipe not found: {recipe_id}")
 
-        if list_id is None:
-            if not self._data.shopping_lists:
-                default = self._create_default_data()
-                self._data.shopping_lists.update(default.shopping_lists)
-            list_id = next(iter(self._data.shopping_lists))
+        list_id = self.resolve_shopping_list_id(list_id, options)
 
         added: list[ShoppingItem] = []
         for ingredient in recipe.ingredients:

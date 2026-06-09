@@ -31,7 +31,8 @@ class PanelEssensplaner extends HTMLElement {
     this._entriesLoading = false;
     this._formDraft = null;
     this._mealTimes = {};
-    this._mealTimesOpen = false;
+    this._shoppingLists = [];
+    this._defaultShoppingListId = null;
     this._inspirationQuery = "";
     this._inspirationResults = [];
     this._inspirationLoading = false;
@@ -233,7 +234,7 @@ class PanelEssensplaner extends HTMLElement {
     } catch (e) {
       this._notify("Essensplan laden fehlgeschlagen: " + (e.message || e), true);
     }
-    await this._loadMealTimes();
+    await this._loadPanelSettings();
     this._dataLoaded = true;
     this._loading = false;
     this._paint();
@@ -471,16 +472,19 @@ class PanelEssensplaner extends HTMLElement {
     return `${parts[0].padStart(2, "0")}:${parts[1].padStart(2, "0")}`;
   }
 
-  async _loadMealTimes() {
+  async _loadPanelSettings() {
     if (!this._entryId || !this._hass) return;
     try {
       const res = await this._hass.callWS({
-        type: "essensplaner/get_meal_times",
+        type: "essensplaner/get_panel_settings",
         entry_id: this._entryId,
       });
-      this._mealTimes = res || {};
+      this._mealTimes = res?.meal_times || {};
+      this._shoppingLists = res?.shopping_lists || [];
+      this._defaultShoppingListId =
+        res?.default_shopping_list_id || this._shoppingLists[0]?.id || null;
     } catch (e) {
-      console.warn("Essensplaner: Essenszeiten laden fehlgeschlagen", e);
+      console.warn("Essensplaner: Einstellungen laden fehlgeschlagen", e);
     }
   }
 
@@ -506,7 +510,6 @@ class PanelEssensplaner extends HTMLElement {
         meal_times,
       });
       this._mealTimes = res || meal_times;
-      this._mealTimesOpen = false;
       this._notify("Essenszeiten gespeichert");
       this._paint();
     } catch (e) {
@@ -515,6 +518,34 @@ class PanelEssensplaner extends HTMLElement {
         msg.includes("admin") || msg.includes("unauthorized")
           ? "Nur Administratoren können Essenszeiten ändern"
           : "Essenszeiten speichern fehlgeschlagen: " + msg,
+        true
+      );
+    }
+  }
+
+  async _saveDefaultShoppingList() {
+    const listId = this._formVal("default-shopping-list");
+    if (!listId) {
+      this._notify("Bitte eine Einkaufsliste auswählen", true);
+      return;
+    }
+    try {
+      const res = await this._hass.callWS({
+        type: "essensplaner/set_default_shopping_list",
+        entry_id: this._entryId,
+        list_id: listId,
+      });
+      this._shoppingLists = res?.shopping_lists || this._shoppingLists;
+      this._defaultShoppingListId =
+        res?.default_shopping_list_id || listId;
+      this._notify("Einkaufsliste gespeichert");
+      this._paint();
+    } catch (e) {
+      const msg = e?.message || String(e);
+      this._notify(
+        msg.includes("admin") || msg.includes("unauthorized")
+          ? "Nur Administratoren können Einstellungen ändern"
+          : "Einkaufsliste speichern fehlgeschlagen: " + msg,
         true
       );
     }
@@ -874,7 +905,12 @@ class PanelEssensplaner extends HTMLElement {
     }
     const a = t.dataset.a;
 
-    if (a === "tab") { this._tab = t.dataset.tab; this._paint(); return; }
+    if (a === "tab") {
+      this._tab = t.dataset.tab;
+      if (this._tab === "config") await this._loadPanelSettings();
+      this._paint();
+      return;
+    }
     if (a === "reload") { await this._load(); return; }
     if (a === "import") { await this._import(); return; }
     if (a === "new") {
@@ -922,12 +958,8 @@ class PanelEssensplaner extends HTMLElement {
     if (a === "week-prev") { this._weekOffset--; await this._reloadPlan(); return; }
     if (a === "week-next") { this._weekOffset++; await this._reloadPlan(); return; }
     if (a === "week-today") { this._weekOffset = 0; await this._reloadPlan(); return; }
-    if (a === "times-toggle") {
-      this._mealTimesOpen = !this._mealTimesOpen;
-      this._paint();
-      return;
-    }
     if (a === "times-save") { await this._saveMealTimes(); return; }
+    if (a === "shopping-list-save") { await this._saveDefaultShoppingList(); return; }
     if (a === "plan-cell") {
       this._dialog = { date: t.dataset.date, type: t.dataset.type, label: this._mealLabel(t.dataset.type) };
       this._dialogSearch = "";
@@ -1162,8 +1194,8 @@ class PanelEssensplaner extends HTMLElement {
       ${grid}`;
   }
 
-  _renderMealTimesSection() {
-    const rows = MEALS.map((m) => {
+  _renderMealTimesFields() {
+    return MEALS.map((m) => {
       const slot = this._mealTimes[m.id] || { start: "12:00", end: "13:00" };
       return `
         <div class="times-row">
@@ -1176,20 +1208,48 @@ class PanelEssensplaner extends HTMLElement {
           </label>
         </div>`;
     }).join("");
+  }
 
+  _renderShoppingListSelect() {
+    if (!this._shoppingLists.length) {
+      return `<p class="muted">Keine Einkaufsliste vorhanden.</p>`;
+    }
+    const selected =
+      this._formVal("default-shopping-list") || this._defaultShoppingListId;
+    const options = this._shoppingLists
+      .map((list) => {
+        const label = list.entity_id
+          ? `${list.name} (${list.entity_id})`
+          : list.name;
+        return `<option value="${this._esc(list.id)}" ${list.id === selected ? "selected" : ""}>${this._esc(label)}</option>`;
+      })
+      .join("");
     return `
-      <div class="meal-times-card">
-        <button type="button" class="times-toggle" data-a="times-toggle">
-          <ha-icon icon="mdi:clock-outline"></ha-icon>
-          Essenszeiten
-          <ha-icon icon="${this._mealTimesOpen ? "mdi:chevron-up" : "mdi:chevron-down"}"></ha-icon>
-        </button>
-        ${this._mealTimesOpen ? `
-          <p class="muted times-hint">Standard-Uhrzeiten für die Kalenderansicht in Home Assistant.</p>
-          <div class="times-grid">${rows}</div>
+      <label class="config-field">
+        <span class="config-label">Ziel-Einkaufsliste</span>
+        <select class="inp" name="default-shopping-list">${options}</select>
+      </label>`;
+  }
+
+  _renderConfigTab() {
+    return `
+      <div class="config-page">
+        <section class="config-card">
+          <h2 class="config-title"><ha-icon icon="mdi:clock-outline"></ha-icon> Essenszeiten</h2>
+          <p class="muted config-hint">Standard-Uhrzeiten für Essensplan und Kalender in Home Assistant.</p>
+          <div class="times-grid">${this._renderMealTimesFields()}</div>
           <div class="btn-row">
-            <button type="button" class="btn primary" data-a="times-save">Speichern</button>
-          </div>` : ""}
+            <button type="button" class="btn primary" data-a="times-save">Essenszeiten speichern</button>
+          </div>
+        </section>
+        <section class="config-card">
+          <h2 class="config-title"><ha-icon icon="mdi:cart"></ha-icon> Einkaufsliste</h2>
+          <p class="muted config-hint">To-do-Liste, in die Rezeptzutaten über den Button „Einkaufsliste“ im Rezept gelegt werden.</p>
+          ${this._renderShoppingListSelect()}
+          <div class="btn-row">
+            <button type="button" class="btn primary" data-a="shopping-list-save">Einkaufsliste speichern</button>
+          </div>
+        </section>
       </div>`;
   }
 
@@ -1244,7 +1304,6 @@ class PanelEssensplaner extends HTMLElement {
 
     const onCurrentWeek = this._weekOffset === 0;
     return `
-      ${this._renderMealTimesSection()}
       <div class="plan-header-card">
         <div class="week-nav">
           <button type="button" class="btn icon week-btn" data-a="week-prev" title="Vorherige Woche">
@@ -1408,6 +1467,8 @@ class PanelEssensplaner extends HTMLElement {
       body = `<div class="loading"><ha-circular-progress active></ha-circular-progress></div>`;
     } else if (this._tab === "recipes") {
       body = this._renderRecipesTab();
+    } else if (this._tab === "config") {
+      body = this._renderConfigTab();
     } else {
       body = this._renderPlanTab();
     }
@@ -1425,6 +1486,7 @@ class PanelEssensplaner extends HTMLElement {
       <nav class="tabs">
         <button class="tab ${this._tab === "recipes" ? "on" : ""}" data-a="tab" data-tab="recipes">Rezepte</button>
         <button class="tab ${this._tab === "plan" ? "on" : ""}" data-a="tab" data-tab="plan">Essensplan</button>
+        <button class="tab ${this._tab === "config" ? "on" : ""}" data-a="tab" data-tab="config">Config</button>
       </nav>
       <main class="content">${body}</main>
       ${toast}
@@ -1645,7 +1707,22 @@ PanelEssensplaner._CSS = `
   .form-inner textarea { resize: vertical; }
   .form-actions { margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--divider-color, #e8e8e8); }
   .hint { font-weight: 400; color: var(--secondary-text-color); font-size: 0.8rem; }
-  .meal-times-card, .inspiration-card {
+  .config-page { display: flex; flex-direction: column; gap: 20px; max-width: 720px; }
+  .config-card {
+    padding: 20px 22px; border-radius: 14px;
+    border: 1px solid var(--divider-color, #e0e0e0);
+    background: var(--card-background-color, #fff);
+    box-shadow: 0 2px 10px rgba(0,0,0,.04);
+  }
+  .config-title {
+    margin: 0 0 8px; font-size: 1.05rem; font-weight: 600;
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .config-title ha-icon { --mdc-icon-size: 22px; color: var(--primary-color); }
+  .config-hint { margin: 0 0 16px; font-size: 0.88rem; }
+  .config-field { display: flex; flex-direction: column; gap: 8px; }
+  .config-label { font-size: 0.82rem; font-weight: 600; color: var(--secondary-text-color); }
+  .inspiration-card {
     margin-bottom: 16px; padding: 14px 16px; border-radius: 12px;
     border: 1px solid var(--divider-color, #e8e8e8);
     background: var(--card-background-color, #fff);

@@ -11,6 +11,7 @@ STORAGE_VERSION = 1
 STORAGE_KEY = "essensplaner.{entry_id}"
 
 CONF_HOUSEHOLD_NAME = "household_name"
+OPTION_DEFAULT_SHOPPING_LIST_ID = "default_shopping_list_id"
 
 ATTR_START_DATE = "start_date"
 ATTR_END_DATE = "end_date"

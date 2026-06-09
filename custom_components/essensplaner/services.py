@@ -436,6 +436,7 @@ async def _async_add_recipe_to_shopping_list(call: ServiceCall) -> ServiceRespon
         items = await store.async_add_recipe_ingredients_to_list(
             call.data[ATTR_RECIPE_ID],
             call.data.get(ATTR_LIST_ID),
+            options=entry.options,
         )
     except ValueError as err:
         raise ServiceValidationError(str(err)) from err

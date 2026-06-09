@@ -8,12 +8,15 @@ import voluptuous as vol
 
 from homeassistant.components import panel_custom, websocket_api
 from homeassistant.components.http import StaticPathConfig
+from homeassistant.components.todo import DOMAIN as TODO_DOMAIN
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 
 from .const import (
     DOMAIN,
     LOVELACE_CARD_URL,
     LOGGER,
+    OPTION_DEFAULT_SHOPPING_LIST_ID,
     PANEL_JS_URL,
     PANEL_STATIC_PATH,
     PANEL_URL_PATH,
@@ -34,6 +37,41 @@ def _panel_entries(hass: HomeAssistant) -> list[dict[str, str]]:
         {"entry_id": entry.entry_id, "title": entry.title}
         for entry in hass.config_entries.async_entries(DOMAIN)
     ]
+
+
+def _shopping_lists_for_panel(hass: HomeAssistant, entry) -> list[dict[str, str | None]]:
+    """Return shopping lists with linked todo entity ids."""
+    store = entry.runtime_data.store
+    entity_registry = er.async_get(hass)
+    unique_id = entry.unique_id
+    result: list[dict[str, str | None]] = []
+    for shopping_list in store.get_shopping_lists():
+        entity_id = None
+        if unique_id:
+            entity_id = entity_registry.async_get_entity_id(
+                TODO_DOMAIN, DOMAIN, f"{unique_id}_{shopping_list.id}"
+            )
+        result.append(
+            {
+                "id": shopping_list.id,
+                "name": shopping_list.name,
+                "entity_id": entity_id,
+            }
+        )
+    return result
+
+
+def _panel_settings(hass: HomeAssistant, entry) -> dict:
+    """Return panel configuration for an entry."""
+    shopping_lists = _shopping_lists_for_panel(hass, entry)
+    default_list_id = entry.options.get(OPTION_DEFAULT_SHOPPING_LIST_ID)
+    if not default_list_id and shopping_lists:
+        default_list_id = shopping_lists[0]["id"]
+    return {
+        "meal_times": meal_times_to_api(entry.options),
+        "shopping_lists": shopping_lists,
+        "default_shopping_list_id": default_list_id,
+    }
 
 
 def _get_config_entry(hass: HomeAssistant, entry_id: str):
@@ -83,6 +121,24 @@ def _async_register_ws(hass: HomeAssistant) -> None:
             return
         connection.send_result(msg["id"], meal_times_to_api(entry.options))
 
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): f"{DOMAIN}/get_panel_settings",
+            vol.Required("entry_id"): str,
+        }
+    )
+    @websocket_api.async_response
+    async def ws_get_panel_settings(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict,
+    ) -> None:
+        entry = _get_config_entry(hass, msg["entry_id"])
+        if entry is None:
+            connection.send_error(msg["id"], "not_found", "Config entry not found")
+            return
+        connection.send_result(msg["id"], _panel_settings(hass, entry))
+
     @websocket_api.require_admin
     @websocket_api.websocket_command(
         {
@@ -115,6 +171,34 @@ def _async_register_ws(hass: HomeAssistant) -> None:
             return
         hass.config_entries.async_update_entry(entry, options=options)
         connection.send_result(msg["id"], meal_times_to_api(options))
+
+    @websocket_api.require_admin
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): f"{DOMAIN}/set_default_shopping_list",
+            vol.Required("entry_id"): str,
+            vol.Required("list_id"): str,
+        }
+    )
+    @websocket_api.async_response
+    async def ws_set_default_shopping_list(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict,
+    ) -> None:
+        entry = _get_config_entry(hass, msg["entry_id"])
+        if entry is None:
+            connection.send_error(msg["id"], "not_found", "Config entry not found")
+            return
+        store = entry.runtime_data.store
+        list_id = msg["list_id"]
+        if list_id not in {lst.id for lst in store.get_shopping_lists()}:
+            connection.send_error(msg["id"], "not_found", "Shopping list not found")
+            return
+        options = dict(entry.options)
+        options[OPTION_DEFAULT_SHOPPING_LIST_ID] = list_id
+        hass.config_entries.async_update_entry(entry, options=options)
+        connection.send_result(msg["id"], _panel_settings(hass, entry))
 
     @websocket_api.websocket_command(
         {
@@ -166,7 +250,9 @@ def _async_register_ws(hass: HomeAssistant) -> None:
 
     websocket_api.async_register_command(hass, ws_config_entries)
     websocket_api.async_register_command(hass, ws_get_meal_times)
+    websocket_api.async_register_command(hass, ws_get_panel_settings)
     websocket_api.async_register_command(hass, ws_set_meal_times)
+    websocket_api.async_register_command(hass, ws_set_default_shopping_list)
     websocket_api.async_register_command(hass, ws_search_recipes_online)
     websocket_api.async_register_command(hass, ws_preview_recipe_url)
     hass.data[DOMAIN][_WS_REGISTERED] = True
