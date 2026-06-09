@@ -12,6 +12,7 @@ from homeassistant.core import HomeAssistant, callback
 
 from .const import DOMAIN, LOGGER, PANEL_JS_URL, PANEL_STATIC_PATH, PANEL_URL_PATH
 from .meal_times import meal_times_to_api, merge_meal_times_from_api
+from .online_search import async_search_recipes_online
 
 _PANEL_REGISTERED = "panel_registered"
 _WS_REGISTERED = "ws_registered"
@@ -105,9 +106,35 @@ def _async_register_ws(hass: HomeAssistant) -> None:
         hass.config_entries.async_update_entry(entry, options=options)
         connection.send_result(msg["id"], meal_times_to_api(options))
 
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): f"{DOMAIN}/search_recipes_online",
+            vol.Required("query"): str,
+            vol.Optional("limit"): vol.All(vol.Coerce(int), vol.Range(min=1, max=24)),
+        }
+    )
+    @websocket_api.async_response
+    async def ws_search_recipes_online(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict,
+    ) -> None:
+        try:
+            results = await async_search_recipes_online(
+                hass, msg["query"], msg.get("limit", 12)
+            )
+        except ValueError as err:
+            connection.send_error(msg["id"], "invalid_query", str(err))
+            return
+        except Exception as err:
+            connection.send_error(msg["id"], "search_failed", str(err))
+            return
+        connection.send_result(msg["id"], {"results": results})
+
     websocket_api.async_register_command(hass, ws_config_entries)
     websocket_api.async_register_command(hass, ws_get_meal_times)
     websocket_api.async_register_command(hass, ws_set_meal_times)
+    websocket_api.async_register_command(hass, ws_search_recipes_online)
     hass.data[DOMAIN][_WS_REGISTERED] = True
 
 

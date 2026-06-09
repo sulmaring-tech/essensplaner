@@ -28,7 +28,9 @@ from .const import (
     ATTR_INCLUDE_TAGS,
     ATTR_INGREDIENTS,
     ATTR_INSTRUCTIONS,
+    ATTR_LIMIT,
     ATTR_LIST_ID,
+    ATTR_QUERY,
     ATTR_NAME,
     ATTR_NOTE_TEXT,
     ATTR_NOTE_TITLE,
@@ -55,6 +57,7 @@ from .const import (
     SERVICE_GET_SHOPPING_LIST_ITEMS,
     SERVICE_IMPORT_RECIPE,
     SERVICE_REMOVE_RECIPE_FROM_COOKBOOK,
+    SERVICE_SEARCH_RECIPES_ONLINE,
     SERVICE_SET_MEALPLAN,
     SERVICE_SET_RANDOM_MEALPLAN,
     SERVICE_UPDATE_RECIPE,
@@ -62,6 +65,7 @@ from .const import (
 from .coordinator import EssensplanerConfigEntry
 from .meal_times import format_time_value, resolve_meal_slot_times
 from .models import Ingredient, MealplanEntry, Recipe
+from .online_search import async_search_recipes_online
 from .recipe_importer import async_import_recipe_from_url
 from .utils import generate_id, unique_slug
 
@@ -218,6 +222,13 @@ SERVICE_CLEAR_MEALPLAN_SCHEMA = vol.Schema(
     }
 )
 
+SERVICE_SEARCH_RECIPES_ONLINE_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_QUERY): cv.string,
+        vol.Optional(ATTR_LIMIT): vol.All(vol.Coerce(int), vol.Range(min=1, max=24)),
+    }
+)
+
 
 def _get_entry(call: ServiceCall) -> EssensplanerConfigEntry:
     """Get config entry from service call."""
@@ -282,6 +293,19 @@ async def _async_get_recipes(call: ServiceCall) -> ServiceResponse:
     limit = call.data.get(ATTR_RESULT_LIMIT, 10)
     recipes = entry.runtime_data.store.search_recipes(search, limit)
     return {"recipes": [r.to_dict() for r in recipes]}
+
+
+async def _async_search_recipes_online(call: ServiceCall) -> ServiceResponse:
+    """Search recipes on Chefkoch."""
+    query = call.data[ATTR_QUERY]
+    limit = call.data.get(ATTR_LIMIT, 12)
+    try:
+        results = await async_search_recipes_online(call.hass, query, limit)
+    except ValueError as err:
+        raise ServiceValidationError(str(err)) from err
+    except Exception as err:
+        raise ServiceValidationError(f"Online search failed: {err}") from err
+    return {"results": results}
 
 
 async def _async_import_recipe(call: ServiceCall) -> ServiceResponse:
@@ -538,6 +562,13 @@ def async_setup_services(hass: HomeAssistant) -> None:
         SERVICE_GET_RECIPES,
         _async_get_recipes,
         schema=SERVICE_GET_RECIPES_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SEARCH_RECIPES_ONLINE,
+        _async_search_recipes_online,
+        schema=SERVICE_SEARCH_RECIPES_ONLINE_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
     hass.services.async_register(

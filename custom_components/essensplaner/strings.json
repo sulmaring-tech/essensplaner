@@ -71,6 +71,10 @@
       "name": "Rezepte suchen",
       "description": "Sucht Rezepte nach Begriffen."
     },
+    "search_recipes_online": {
+      "name": "Online-Rezepte suchen",
+      "description": "Durchsucht Chefkoch nach Rezepten (Inspiration ohne URL)."
+    },
     "import_recipe": {
       "name": "Rezept importieren",
       "description": "Importiert ein Rezept von einer URL."

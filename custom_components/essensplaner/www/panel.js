@@ -32,6 +32,15 @@ class PanelEssensplaner extends HTMLElement {
     this._formDraft = null;
     this._mealTimes = {};
     this._mealTimesOpen = false;
+    this._inspirationQuery = "";
+    this._inspirationResults = [];
+    this._inspirationLoading = false;
+    this._inspirationOpen = false;
+    this._dialogPane = "local";
+    this._dialogOnlineQuery = "";
+    this._dialogOnlineResults = [];
+    this._dialogOnlineLoading = false;
+    this._onlineImporting = false;
     this._dataLoaded = false;
     this._onClick = this._handleClick.bind(this);
     this._onInput = this._handleInput.bind(this);
@@ -70,7 +79,8 @@ class PanelEssensplaner extends HTMLElement {
       this._mode === "create" ||
       this._mode === "edit" ||
       !!this._dialog ||
-      this._mealTimesOpen
+      this._mealTimesOpen ||
+      this._inspirationOpen
     );
   }
 
@@ -487,6 +497,82 @@ class PanelEssensplaner extends HTMLElement {
     return chips.length ? `<div class="meta-chips">${chips.join("")}</div>` : "";
   }
 
+  async _searchRecipesOnline(query) {
+    const q = (query || "").trim();
+    if (q.length < 2) {
+      this._notify("Bitte mindestens 2 Zeichen eingeben", true);
+      return [];
+    }
+    const res = await this._hass.callWS({
+      type: "essensplaner/search_recipes_online",
+      query: q,
+      limit: 12,
+    });
+    return res?.results || [];
+  }
+
+  _renderOnlineThumb(result) {
+    if (result?.image_url) {
+      return `<img class="recipe-thumb xs" src="${this._esc(result.image_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">`;
+    }
+    return this._renderRecipeThumb(null, "xs");
+  }
+
+  _renderOnlineResults(results, assign = false) {
+    if (!results?.length) {
+      return `<p class="muted">Keine Treffer – anderen Suchbegriff probieren.</p>`;
+    }
+    return results.map((r) => `
+      <div class="online-item">
+        ${this._renderOnlineThumb(r)}
+        <div class="online-body">
+          <strong>${this._esc(r.title)}</strong>
+          <span class="muted">Chefkoch</span>
+        </div>
+        <button type="button" class="btn primary sm" data-a="online-import" data-url="${this._esc(r.url)}" data-assign="${assign ? "1" : "0"}" ${this._onlineImporting ? "disabled" : ""}>
+          ${assign ? "Import & planen" : "Importieren"}
+        </button>
+      </div>`).join("");
+  }
+
+  async _importFromOnline(url, assign = false) {
+    if (!url || this._onlineImporting) return;
+    this._onlineImporting = true;
+    this._paint();
+    const dialog = this._dialog;
+    try {
+      const res = await this._svc("import_recipe", { url }, true);
+      const recipe = res?.recipe || res;
+      let recipeId = recipe?.id;
+      if (recipeId && dialog?.type) {
+        const other = (recipe.tags || []).filter((t) => !MEAL_TAG_IDS.has(t));
+        await this._svc("update_recipe", {
+          recipe_id: recipeId,
+          tags: [...other, dialog.type],
+        }, true);
+      }
+      await this._load();
+      if (assign && dialog && recipeId) {
+        await this._svc("set_mealplan", {
+          date: dialog.date,
+          entry_type: dialog.type,
+          recipe_id: recipeId,
+        }, false);
+        this._dialog = null;
+        this._dialogPane = "local";
+        this._notify("Rezept importiert und geplant");
+        await this._reloadPlan();
+      } else {
+        this._notify("Rezept importiert");
+      }
+    } catch (e) {
+      this._notify("Import fehlgeschlagen: " + (e.message || e), true);
+    } finally {
+      this._onlineImporting = false;
+      this._paint();
+    }
+  }
+
   _recipeSummary(recipe) {
     const parts = [];
     if (recipe.servings) parts.push(recipe.servings);
@@ -625,6 +711,14 @@ class PanelEssensplaner extends HTMLElement {
       this._dialogSearch = el.value;
       clearTimeout(this._searchTimer);
       this._searchTimer = setTimeout(() => this._paintDialogSearch(), 150);
+      return;
+    }
+    if (el.id === "inspiration-query") {
+      this._inspirationQuery = el.value;
+      return;
+    }
+    if (el.id === "dialog-online-query") {
+      this._dialogOnlineQuery = el.value;
     }
   }
 
@@ -711,7 +805,50 @@ class PanelEssensplaner extends HTMLElement {
     if (a === "plan-cell") {
       this._dialog = { date: t.dataset.date, type: t.dataset.type, label: this._mealLabel(t.dataset.type) };
       this._dialogSearch = "";
+      this._dialogPane = "local";
+      this._dialogOnlineQuery = "";
+      this._dialogOnlineResults = [];
       this._paint();
+      return;
+    }
+    if (a === "inspiration-toggle") {
+      this._inspirationOpen = !this._inspirationOpen;
+      this._paint();
+      return;
+    }
+    if (a === "inspiration-search") {
+      this._inspirationLoading = true;
+      this._paint();
+      try {
+        this._inspirationResults = await this._searchRecipesOnline(this._inspirationQuery);
+      } catch (e) {
+        this._notify("Suche fehlgeschlagen: " + (e.message || e), true);
+      } finally {
+        this._inspirationLoading = false;
+        this._paint();
+      }
+      return;
+    }
+    if (a === "dialog-tab") {
+      this._dialogPane = t.dataset.pane || "local";
+      this._paint();
+      return;
+    }
+    if (a === "dialog-online-search") {
+      this._dialogOnlineLoading = true;
+      this._paint();
+      try {
+        this._dialogOnlineResults = await this._searchRecipesOnline(this._dialogOnlineQuery);
+      } catch (e) {
+        this._notify("Suche fehlgeschlagen: " + (e.message || e), true);
+      } finally {
+        this._dialogOnlineLoading = false;
+        this._paint();
+      }
+      return;
+    }
+    if (a === "online-import") {
+      await this._importFromOnline(t.dataset.url, t.dataset.assign === "1");
       return;
     }
     if (a === "plan-pick") { await this._assignPlan(t.dataset.id); return; }
@@ -907,6 +1044,25 @@ class PanelEssensplaner extends HTMLElement {
       </div>`;
   }
 
+  _renderInspirationSection() {
+    return `
+      <div class="inspiration-card">
+        <button type="button" class="times-toggle" data-a="inspiration-toggle">
+          <ha-icon icon="mdi:lightbulb-on-outline"></ha-icon>
+          Rezept-Inspiration
+          <ha-icon icon="${this._inspirationOpen ? "mdi:chevron-up" : "mdi:chevron-down"}"></ha-icon>
+        </button>
+        ${this._inspirationOpen ? `
+          <p class="muted times-hint">Online auf Chefkoch suchen – ohne URL. Rezepte werden in deine Sammlung importiert.</p>
+          <div class="inspiration-search">
+            <input class="inp grow" id="inspiration-query" placeholder="z. B. schnelles Abendessen, Linsensuppe, vegetarisch…" value="${this._esc(this._inspirationQuery)}">
+            <button type="button" class="btn primary" data-a="inspiration-search" ${this._inspirationLoading ? "disabled" : ""}>Suchen</button>
+          </div>
+          ${this._inspirationLoading ? `<div class="loading compact"><ha-circular-progress active></ha-circular-progress></div>` : ""}
+          <div class="online-list">${this._renderOnlineResults(this._inspirationResults, false)}</div>` : ""}
+      </div>`;
+  }
+
   _renderPlanTab() {
     const { days, monday, sunday } = this._weekRange();
     const weekLabel = `${monday.toLocaleDateString("de-DE", { day: "2-digit", month: "short" })} – ${sunday.toLocaleDateString("de-DE", { day: "2-digit", month: "short", year: "numeric" })}`;
@@ -932,6 +1088,7 @@ class PanelEssensplaner extends HTMLElement {
 
     return `
       ${this._renderMealTimesSection()}
+      ${this._renderInspirationSection()}
       <div class="week-nav">
         <button class="btn icon" data-a="week-prev"><ha-icon icon="mdi:chevron-left"></ha-icon></button>
         <span class="week-label">${weekLabel}</span>
@@ -962,20 +1119,33 @@ class PanelEssensplaner extends HTMLElement {
           </button>`).join("")
       : `<p class="muted">Kein Rezept gefunden</p>`;
 
+    const localPane = this._dialogPane === "local";
     return `
       <div class="overlay">
-        <div class="dialog">
+        <div class="dialog dialog-wide">
           <div class="dialog-head">
             <h3>${label}</h3>
             <span class="muted">${wd}, ${dm}</span>
             <button type="button" class="btn icon close" data-a="dialog-close" title="Schließen">✕</button>
           </div>
           ${current ? `<div class="current-plan">Aktuell: <strong>${this._esc(current)}</strong></div>` : ""}
-          <input class="inp" id="dialog-search" placeholder="Rezept wählen…" value="${this._esc(this._dialogSearch)}">
-          <div class="pick-list">${list}</div>
+          <div class="dialog-tabs">
+            <button type="button" class="dialog-tab ${localPane ? "on" : ""}" data-a="dialog-tab" data-pane="local">Meine Rezepte</button>
+            <button type="button" class="dialog-tab ${!localPane ? "on" : ""}" data-a="dialog-tab" data-pane="online">Online suchen</button>
+          </div>
+          ${localPane ? `
+            <input class="inp" id="dialog-search" placeholder="Rezept wählen…" value="${this._esc(this._dialogSearch)}">
+            <div class="pick-list">${list}</div>` : `
+            <p class="muted dialog-hint">Chefkoch durchsuchen und direkt importieren &amp; planen.</p>
+            <div class="inspiration-search">
+              <input class="inp grow" id="dialog-online-query" placeholder="Was soll es heute geben?" value="${this._esc(this._dialogOnlineQuery)}">
+              <button type="button" class="btn primary" data-a="dialog-online-search" ${this._dialogOnlineLoading ? "disabled" : ""}>Suchen</button>
+            </div>
+            ${this._dialogOnlineLoading ? `<div class="loading compact"><ha-circular-progress active></ha-circular-progress></div>` : ""}
+            <div class="online-list dialog-online">${this._renderOnlineResults(this._dialogOnlineResults, true)}</div>`}
           <div class="btn-row">
-            ${current ? `<button class="btn danger" data-a="plan-clear">Entfernen</button>` : ""}
-            <button class="btn" data-a="dialog-close">Abbrechen</button>
+            ${current && localPane ? `<button type="button" class="btn danger" data-a="plan-clear">Entfernen</button>` : ""}
+            <button type="button" class="btn" data-a="dialog-close">Abbrechen</button>
           </div>
         </div>
       </div>`;
@@ -1216,11 +1386,31 @@ PanelEssensplaner._CSS = `
     height: 100%; min-height: 300px; color: var(--secondary-text-color); text-align: center; gap: 12px;
   }
   .empty-detail ha-icon { --mdc-icon-size: 48px; opacity: .4; }
-  .meal-times-card {
+  .meal-times-card, .inspiration-card {
     margin-bottom: 16px; padding: 14px 16px; border-radius: 12px;
     border: 1px solid var(--divider-color, #e8e8e8);
     background: var(--card-background-color, #fff);
   }
+  .inspiration-search { display: flex; gap: 10px; margin: 12px 0; flex-wrap: wrap; }
+  .online-list { display: flex; flex-direction: column; gap: 8px; max-height: 42vh; overflow-y: auto; }
+  .dialog-online { max-height: 36vh; }
+  .online-item {
+    display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+    border: 1px solid var(--divider-color, #eee); border-radius: 10px;
+    background: var(--secondary-background-color, #fafafa);
+  }
+  .online-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .online-body strong { font-size: 0.9rem; line-height: 1.3; }
+  .btn.sm { padding: 7px 12px; font-size: 0.82rem; }
+  .loading.compact { padding: 16px; text-align: center; }
+  .dialog-wide { max-width: 520px; }
+  .dialog-tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+  .dialog-tab {
+    flex: 1; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--divider-color, #ddd);
+    background: var(--card-background-color, #fff); cursor: pointer; font: inherit; font-size: 0.88rem;
+  }
+  .dialog-tab.on { border-color: var(--primary-color); background: color-mix(in srgb, var(--primary-color) 10%, transparent); color: var(--primary-color); font-weight: 500; }
+  .dialog-hint { margin: 0 0 8px; font-size: 0.85rem; }
   .times-toggle {
     display: flex; align-items: center; gap: 8px; width: 100%;
     padding: 0; border: none; background: none; cursor: pointer;

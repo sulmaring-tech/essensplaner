@@ -43,6 +43,20 @@ get_recipes:
           min: 1
           max: 500
 
+search_recipes_online:
+  fields:
+    query:
+      required: true
+      example: pasta vegetarisch
+      selector:
+        text:
+    limit:
+      default: 12
+      selector:
+        number:
+          min: 1
+          max: 24
+
 import_recipe:
   fields:
     config_entry_id:
