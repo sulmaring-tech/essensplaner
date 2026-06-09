@@ -6,6 +6,8 @@ const MEALS = [
   { id: "dinner", label: "Abendessen", icon: "mdi:food-turkey" },
 ];
 
+const MEAL_TAG_IDS = new Set(MEALS.map((m) => m.id));
+
 class PanelEssensplaner extends HTMLElement {
   constructor() {
     super();
@@ -16,6 +18,7 @@ class PanelEssensplaner extends HTMLElement {
     this._selected = null;
     this._mode = "view"; // view | create | edit
     this._search = "";
+    this._mealFilter = null;
     this._importUrl = "";
     this._loading = false;
     this._toast = "";
@@ -302,12 +305,52 @@ class PanelEssensplaner extends HTMLElement {
   }
 
   _filtered() {
-    if (!this._search) return this._recipes;
+    let list = this._recipes;
+    if (this._mealFilter) {
+      list = list.filter((r) => (r.tags || []).includes(this._mealFilter));
+    }
+    if (!this._search) return list;
     const q = this._search.toLowerCase();
-    return this._recipes.filter((r) =>
+    return list.filter((r) =>
       [r.name, r.description, ...(r.tags || []), ...(r.categories || [])]
         .join(" ").toLowerCase().includes(q)
     );
+  }
+
+  _recipeMealTags(recipe) {
+    return (recipe?.tags || []).filter((t) => MEAL_TAG_IDS.has(t));
+  }
+
+  _otherTags(recipe) {
+    return (recipe?.tags || []).filter((t) => !MEAL_TAG_IDS.has(t));
+  }
+
+  _mealTagLabel(id) {
+    return MEALS.find((m) => m.id === id)?.label || id;
+  }
+
+  _instructionsToText(steps) {
+    return (steps || []).map((s) => String(s).trim()).filter(Boolean).join("\n\n");
+  }
+
+  _instructionsFromText(text) {
+    return String(text)
+      .split(/\n\s*\n/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+
+  _selectedMealTagsFromForm() {
+    return MEALS.filter((m) => this.querySelector(`[name="meal-${m.id}"]`)?.checked).map(
+      (m) => m.id
+    );
+  }
+
+  _tagsForSave() {
+    const mealTags = this._selectedMealTagsFromForm();
+    const other =
+      this._mode === "edit" && this._selected ? this._otherTags(this._selected) : [];
+    return [...mealTags, ...other];
   }
 
   _plan(date, type) {
@@ -432,7 +475,13 @@ class PanelEssensplaner extends HTMLElement {
     if (cook) {
       chips.push(`<span class="meta-chip"><ha-icon icon="mdi:stove"></ha-icon>${cook}</span>`);
     }
-    for (const tag of (recipe.tags || []).slice(0, 4)) {
+    for (const id of this._recipeMealTags(recipe)) {
+      const meal = MEALS.find((m) => m.id === id);
+      chips.push(
+        `<span class="meta-chip meal-tag"><ha-icon icon="${meal?.icon || "mdi:food"}"></ha-icon>${this._esc(this._mealTagLabel(id))}</span>`
+      );
+    }
+    for (const tag of this._otherTags(recipe).slice(0, 4)) {
       chips.push(`<span class="meta-chip tag">${this._esc(tag)}</span>`);
     }
     return chips.length ? `<div class="meta-chips">${chips.join("")}</div>` : "";
@@ -474,8 +523,9 @@ class PanelEssensplaner extends HTMLElement {
       name,
       description: this._formVal("description").trim(),
       ingredients: this._formVal("ingredients").split("\n").map((s) => s.trim()).filter(Boolean),
-      instructions: this._formVal("instructions").split("\n").map((s) => s.trim()).filter(Boolean),
+      instructions: this._instructionsFromText(this._formVal("instructions")),
       image_url: imageUrl || "",
+      tags: this._tagsForSave(),
     };
     this._loading = true;
     this._paint();
@@ -633,6 +683,11 @@ class PanelEssensplaner extends HTMLElement {
       this._paint();
       return;
     }
+    if (a === "filter-meal") {
+      this._mealFilter = t.dataset.meal || null;
+      this._paint();
+      return;
+    }
     if (a === "select") {
       this._selected = this._recipes.find((r) => r.id === t.dataset.id) || null;
       this._mode = "view";
@@ -667,23 +722,32 @@ class PanelEssensplaner extends HTMLElement {
   /* ── render blocks ────────────────────────────────── */
 
   _renderForm(r) {
-    const base = r || { name: "", description: "", ingredients: [], instructions: [], image_url: "" };
+    const base = r || { name: "", description: "", ingredients: [], instructions: [], image_url: "", tags: [] };
+    let instructionsText = this._instructionsToText(base.instructions);
+    let ingredientsText = (base.ingredients || []).map((i) => this._formatIngredient(i)).join("\n");
     const data = {
       name: base.name || "",
       description: base.description || "",
-      ingredients: base.ingredients || [],
-      instructions: base.instructions || [],
       image_url: base.image_url || "",
+      mealTags: this._recipeMealTags(base),
     };
     if (this._formDraft) {
       if (this._formDraft.name !== undefined) data.name = this._formDraft.name;
       if (this._formDraft.description !== undefined) data.description = this._formDraft.description;
-      if (this._formDraft.ingredients !== undefined) data.ingredients = this._formDraft.ingredients.split("\n");
-      if (this._formDraft.instructions !== undefined) data.instructions = this._formDraft.instructions.split("\n");
+      if (this._formDraft.ingredients !== undefined) ingredientsText = this._formDraft.ingredients;
+      if (this._formDraft.instructions !== undefined) instructionsText = this._formDraft.instructions;
       if (this._formDraft.image_url !== undefined) data.image_url = this._formDraft.image_url;
     }
     const previewUrl = data.image_url?.trim();
     const title = this._mode === "edit" ? "Rezept bearbeiten" : "Neues Rezept";
+    const mealChecks = MEALS.map(
+      (m) => `
+        <label class="meal-check">
+          <input type="checkbox" name="meal-${m.id}" ${data.mealTags.includes(m.id) ? "checked" : ""}>
+          <ha-icon icon="${m.icon}"></ha-icon>
+          <span>${m.label}</span>
+        </label>`
+    ).join("");
     return `
       <div class="form-card">
         <h3>${title}</h3>
@@ -695,11 +759,15 @@ class PanelEssensplaner extends HTMLElement {
         <label>Name<input class="inp" name="name" value="${this._esc(data.name)}" autofocus></label>
         <label>Bild-URL <span class="hint">(wird beim Import oft automatisch gesetzt)</span>
           <input class="inp" name="image_url" type="url" placeholder="https://…" value="${this._esc(data.image_url || "")}"></label>
+        <fieldset class="meal-tag-field">
+          <legend>Mahlzeit</legend>
+          <div class="meal-checks">${mealChecks}</div>
+        </fieldset>
         <label>Beschreibung<textarea class="inp" name="description" rows="2">${this._esc(data.description || "")}</textarea></label>
         <label>Zutaten <span class="hint">(eine pro Zeile)</span>
-          <textarea class="inp" name="ingredients" rows="6">${this._esc((data.ingredients || []).map((i) => this._formatIngredient(i)).join("\n"))}</textarea></label>
-        <label>Zubereitung <span class="hint">(ein Schritt pro Zeile)</span>
-          <textarea class="inp" name="instructions" rows="6">${this._esc((data.instructions || []).join("\n"))}</textarea></label>
+          <textarea class="inp" name="ingredients" rows="6">${this._esc(ingredientsText)}</textarea></label>
+        <label>Zubereitung <span class="hint">(Schritte durch eine Leerzeile trennen; Zeilenumbrüche innerhalb eines Schritts bleiben erhalten)</span>
+          <textarea class="inp" name="instructions" rows="8">${this._esc(instructionsText)}</textarea></label>
         <div class="btn-row">
           <button type="button" class="btn primary" data-a="save">Speichern</button>
           <button type="button" class="btn" data-a="cancel">Abbrechen</button>
@@ -764,11 +832,18 @@ class PanelEssensplaner extends HTMLElement {
     const cards = list.length
       ? list.map((r) => {
           const summary = this._recipeSummary(r);
+          const mealTags = this._recipeMealTags(r);
+          const mealHtml = mealTags.length
+            ? `<span class="rc-meals">${mealTags
+                .map((id) => `<span class="rc-meal-tag">${this._esc(this._mealTagLabel(id))}</span>`)
+                .join("")}</span>`
+            : "";
           return `
           <button type="button" class="recipe-card ${this._selected?.id === r.id ? "on" : ""}" data-a="select" data-id="${r.id}">
             ${this._renderRecipeThumb(r, "sm")}
             <div class="rc-body">
               <strong>${this._esc(r.name)}</strong>
+              ${mealHtml}
               ${summary ? `<span class="rc-meta">${this._esc(summary)}</span>` : ""}
               ${r.description ? `<span class="rc-desc">${this._esc(r.description).slice(0, 72)}${r.description.length > 72 ? "…" : ""}</span>` : ""}
             </div>
@@ -785,6 +860,15 @@ class PanelEssensplaner extends HTMLElement {
       <div class="toolbar">
         <input class="inp" id="search" placeholder="Rezepte suchen…" value="${this._esc(this._search)}">
         <span class="badge">${list.length} Rezepte</span>
+      </div>
+      <div class="meal-filters">
+        <button type="button" class="filter-chip ${!this._mealFilter ? "on" : ""}" data-a="filter-meal" data-meal="">Alle</button>
+        ${MEALS.map(
+          (m) => `
+          <button type="button" class="filter-chip ${this._mealFilter === m.id ? "on" : ""}" data-a="filter-meal" data-meal="${m.id}">
+            <ha-icon icon="${m.icon}"></ha-icon>${m.label}
+          </button>`
+        ).join("")}
       </div>
       <div class="split">
         <div class="recipe-list">${cards}</div>
@@ -1045,6 +1129,40 @@ PanelEssensplaner._CSS = `
   }
   .meta-chip ha-icon { --mdc-icon-size: 16px; }
   .meta-chip.tag { background: color-mix(in srgb, var(--primary-color) 12%, transparent); color: var(--primary-color); }
+  .meta-chip.meal-tag { background: color-mix(in srgb, var(--primary-color) 14%, transparent); color: var(--primary-color); font-weight: 500; }
+  .meal-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+  .filter-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 14px; border-radius: 999px; border: 1px solid var(--divider-color, #ddd);
+    background: var(--card-background-color, #fff); cursor: pointer; font: inherit; font-size: 0.85rem;
+    color: var(--secondary-text-color); transition: border-color .12s, background .12s;
+  }
+  .filter-chip ha-icon { --mdc-icon-size: 16px; }
+  .filter-chip.on {
+    border-color: var(--primary-color); background: color-mix(in srgb, var(--primary-color) 12%, transparent);
+    color: var(--primary-color); font-weight: 500;
+  }
+  .filter-chip:hover:not(.on) { border-color: var(--primary-color); }
+  .rc-meals { display: flex; flex-wrap: wrap; gap: 4px; }
+  .rc-meal-tag {
+    font-size: 0.72rem; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+    background: color-mix(in srgb, var(--primary-color) 12%, transparent); color: var(--primary-color);
+  }
+  .meal-tag-field { border: none; margin: 0 0 14px; padding: 0; }
+  .meal-tag-field legend { font-size: 0.9rem; font-weight: 500; margin-bottom: 8px; padding: 0; }
+  .meal-checks { display: flex; flex-wrap: wrap; gap: 10px; }
+  .meal-check {
+    display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px;
+    border-radius: 10px; border: 1px solid var(--divider-color, #ddd);
+    background: var(--secondary-background-color, #fafafa); cursor: pointer; font-size: 0.88rem;
+  }
+  .meal-check:has(input:checked) {
+    border-color: var(--primary-color);
+    background: color-mix(in srgb, var(--primary-color) 10%, var(--card-background-color, #fff));
+    color: var(--primary-color);
+  }
+  .meal-check input { margin: 0; }
+  .meal-check ha-icon { --mdc-icon-size: 18px; }
   .desc { color: var(--secondary-text-color); line-height: 1.55; margin: 0 0 12px; }
   .source-link { display: inline-block; margin-bottom: 16px; font-size: 0.85rem; color: var(--primary-color); text-decoration: none; }
   .source-link:hover { text-decoration: underline; }
@@ -1074,7 +1192,7 @@ PanelEssensplaner._CSS = `
     background: var(--primary-color); color: var(--text-primary-color, #fff);
     font-size: 0.78rem; font-weight: 600;
   }
-  .step-text { flex: 1; padding-top: 3px; }
+  .step-text { flex: 1; padding-top: 3px; white-space: pre-line; }
   .detail-actions { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--divider-color, #e8e8e8); }
   .detail-actions .btn ha-icon { --mdc-icon-size: 18px; }
   .form-card { padding: 24px; }
