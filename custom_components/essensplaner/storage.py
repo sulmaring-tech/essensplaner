@@ -16,6 +16,7 @@ from .const import (
     STORAGE_KEY,
     STORAGE_VERSION,
 )
+from .shopping_targets import TARGET_ESSENSPLANER, parse_encoded_target
 from .models import (
     Cookbook,
     EssensplanerData,
@@ -272,8 +273,16 @@ class EssensplanerStore:
             return list_id
         if options:
             configured = options.get(OPTION_DEFAULT_SHOPPING_LIST_ID)
-            if configured and configured in self._data.shopping_lists:
-                return configured
+            if configured:
+                if ":" in configured:
+                    source, target_id = parse_encoded_target(configured)
+                    if (
+                        source == TARGET_ESSENSPLANER
+                        and target_id in self._data.shopping_lists
+                    ):
+                        return target_id
+                elif configured in self._data.shopping_lists:
+                    return configured
         if not self._data.shopping_lists:
             default = self._create_default_data()
             self._data.shopping_lists.update(default.shopping_lists)

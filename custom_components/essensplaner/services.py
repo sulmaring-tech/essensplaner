@@ -430,19 +430,37 @@ async def _async_set_random_mealplan(call: ServiceCall) -> ServiceResponse:
 
 async def _async_add_recipe_to_shopping_list(call: ServiceCall) -> ServiceResponse:
     """Add recipe ingredients to shopping list."""
+    from .shopping_targets import (
+        TARGET_ESSENSPLANER,
+        async_add_recipe_ingredients,
+        encode_target,
+        resolve_target,
+    )
+
     entry = _get_entry(call)
     store = entry.runtime_data.store
+    recipe = store.find_recipe(call.data[ATTR_RECIPE_ID])
+    if not recipe:
+        raise ServiceValidationError(f"Recipe not found: {call.data[ATTR_RECIPE_ID]}")
+
+    list_id = call.data.get(ATTR_LIST_ID)
+    if list_id and ":" not in list_id:
+        list_id = encode_target(TARGET_ESSENSPLANER, list_id)
+
     try:
-        items = await store.async_add_recipe_ingredients_to_list(
-            call.data[ATTR_RECIPE_ID],
-            call.data.get(ATTR_LIST_ID),
-            options=entry.options,
+        items = await async_add_recipe_ingredients(
+            call.hass,
+            entry,
+            recipe,
+            encoded_target=list_id,
         )
+        target = resolve_target(list_id, entry.options, store)
     except ValueError as err:
         raise ServiceValidationError(str(err)) from err
 
-    await entry.runtime_data.shoppinglist_coordinator.async_refresh()
-    return {"items": [i.to_dict() for i in items]}
+    if target.source == "essensplaner":
+        await entry.runtime_data.shoppinglist_coordinator.async_refresh()
+    return {"items": items}
 
 
 async def _async_get_cookbooks(call: ServiceCall) -> ServiceResponse:

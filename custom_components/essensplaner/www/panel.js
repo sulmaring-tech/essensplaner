@@ -1210,24 +1210,44 @@ class PanelEssensplaner extends HTMLElement {
     }).join("");
   }
 
+  _shoppingListSourceLabel(source) {
+    return { essensplaner: "Essensplaner", bring: "Bring!" }[source] || source;
+  }
+
   _renderShoppingListSelect() {
     if (!this._shoppingLists.length) {
-      return `<p class="muted">Keine Einkaufsliste vorhanden.</p>`;
+      return `<p class="muted">Keine Einkaufsliste vorhanden. Essensplaner-Liste oder Bring!-Integration einrichten.</p>`;
     }
     const selected =
       this._formVal("default-shopping-list") || this._defaultShoppingListId;
-    const options = this._shoppingLists
-      .map((list) => {
-        const label = list.entity_id
-          ? `${list.name} (${list.entity_id})`
-          : list.name;
-        return `<option value="${this._esc(list.id)}" ${list.id === selected ? "selected" : ""}>${this._esc(label)}</option>`;
+    const groups = new Map();
+    for (const list of this._shoppingLists) {
+      const source = list.source || "essensplaner";
+      if (!groups.has(source)) groups.set(source, []);
+      groups.get(source).push(list);
+    }
+    const sourceOrder = ["essensplaner", "bring"];
+    const groupHtml = sourceOrder
+      .filter((source) => groups.has(source))
+      .map((source) => [source, groups.get(source)])
+      .concat(
+        [...groups.entries()].filter(([source]) => !sourceOrder.includes(source))
+      )
+      .map(([source, lists]) => {
+        const options = lists
+          .map((list) => {
+            const suffix = list.entity_id ? ` (${list.entity_id})` : "";
+            const label = `${list.name}${suffix}`;
+            return `<option value="${this._esc(list.id)}" ${list.id === selected ? "selected" : ""}>${this._esc(label)}</option>`;
+          })
+          .join("");
+        return `<optgroup label="${this._esc(this._shoppingListSourceLabel(source))}">${options}</optgroup>`;
       })
       .join("");
     return `
       <label class="config-field">
         <span class="config-label">Ziel-Einkaufsliste</span>
-        <select class="inp" name="default-shopping-list">${options}</select>
+        <select class="inp" name="default-shopping-list">${groupHtml}</select>
       </label>`;
   }
 
@@ -1244,7 +1264,7 @@ class PanelEssensplaner extends HTMLElement {
         </section>
         <section class="config-card">
           <h2 class="config-title"><ha-icon icon="mdi:cart"></ha-icon> Einkaufsliste</h2>
-          <p class="muted config-hint">To-do-Liste, in die Rezeptzutaten über den Button „Einkaufsliste“ im Rezept gelegt werden.</p>
+          <p class="muted config-hint">Liste für den Button „Einkaufsliste“ im Rezept – Essensplaner oder Bring!.</p>
           ${this._renderShoppingListSelect()}
           <div class="btn-row">
             <button type="button" class="btn primary" data-a="shopping-list-save">Einkaufsliste speichern</button>
