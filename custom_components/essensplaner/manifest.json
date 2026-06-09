@@ -7,5 +7,5 @@
   "integration_type": "service",
   "iot_class": "local_polling",
   "requirements": ["recipe-scrapers>=15.0.0"],
-  "version": "1.0.3"
+  "version": "1.0.4"
 }

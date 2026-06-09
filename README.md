@@ -30,8 +30,9 @@ Alle Daten werden lokal in Home Assistant gespeichert (`.storage/essensplaner.*`
 
 ### HACS
 
-1. Repository als benutzerdefiniertes Repository hinzufügen
+1. Repository als benutzerdefiniertes Repository hinzufügen: `https://github.com/sulmaring-tech/essensplaner`
 2. Integration installieren und Home Assistant neu starten
+3. Updates erscheinen als Versionsnummer (z. B. `v1.0.4`), sobald [GitHub Releases](https://github.com/sulmaring-tech/essensplaner/releases) veröffentlicht sind
 
 ## Services
 
