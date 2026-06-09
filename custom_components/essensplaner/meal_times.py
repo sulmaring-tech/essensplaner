@@ -63,6 +63,42 @@ def resolve_meal_slot_times(
     return get_configured_meal_times(options)[mealplan.entry_type]
 
 
+def normalize_meal_time_option_values(user_input: dict[str, Any]) -> dict[str, str]:
+    """Store meal time option values as HH:MM strings."""
+    return {key: format_time_value(value) for key, value in user_input.items()}
+
+
+def meal_times_to_api(options: dict[str, Any]) -> dict[str, dict[str, str]]:
+    """Return meal times for API consumers."""
+    return {
+        entry_type: {"start": start, "end": end}
+        for entry_type, (start, end) in get_configured_meal_times(options).items()
+    }
+
+
+def merge_meal_times_from_api(
+    current: dict[str, Any], meal_times: dict[str, dict[str, str]]
+) -> dict[str, str]:
+    """Merge meal time updates into config entry options."""
+    options = dict(current)
+    for entry_type, slot in meal_times.items():
+        if entry_type not in MEALPLAN_ENTRY_TYPES or not isinstance(slot, dict):
+            continue
+        start = slot.get("start")
+        end = slot.get("end")
+        if start is None or end is None:
+            continue
+        start_fmt = format_time_value(start)
+        end_fmt = format_time_value(end)
+        start_m = parse_time_value(start_fmt)[0] * 60 + parse_time_value(start_fmt)[1]
+        end_m = parse_time_value(end_fmt)[0] * 60 + parse_time_value(end_fmt)[1]
+        if end_m <= start_m:
+            raise ValueError(f"End time must be after start time for {entry_type}")
+        options[meal_time_option_key(entry_type, "start")] = start_fmt
+        options[meal_time_option_key(entry_type, "end")] = end_fmt
+    return options
+
+
 def mealplan_to_datetimes(
     mealplan: MealplanEntry, options: dict[str, Any]
 ) -> tuple[datetime, datetime]:

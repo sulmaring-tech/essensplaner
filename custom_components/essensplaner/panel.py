@@ -11,6 +11,7 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.core import HomeAssistant, callback
 
 from .const import DOMAIN, LOGGER, PANEL_JS_URL, PANEL_STATIC_PATH, PANEL_URL_PATH
+from .meal_times import meal_times_to_api, merge_meal_times_from_api
 
 _PANEL_REGISTERED = "panel_registered"
 _WS_REGISTERED = "ws_registered"
@@ -22,6 +23,14 @@ def _panel_entries(hass: HomeAssistant) -> list[dict[str, str]]:
         {"entry_id": entry.entry_id, "title": entry.title}
         for entry in hass.config_entries.async_entries(DOMAIN)
     ]
+
+
+def _get_config_entry(hass: HomeAssistant, entry_id: str):
+    """Return Essensplaner config entry or None."""
+    entry = hass.config_entries.async_get_entry(entry_id)
+    if entry is None or entry.domain != DOMAIN:
+        return None
+    return entry
 
 
 @callback
@@ -45,7 +54,60 @@ def _async_register_ws(hass: HomeAssistant) -> None:
     ) -> None:
         connection.send_result(msg["id"], _panel_entries(hass))
 
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): f"{DOMAIN}/get_meal_times",
+            vol.Required("entry_id"): str,
+        }
+    )
+    @websocket_api.async_response
+    async def ws_get_meal_times(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict,
+    ) -> None:
+        entry = _get_config_entry(hass, msg["entry_id"])
+        if entry is None:
+            connection.send_error(msg["id"], "not_found", "Config entry not found")
+            return
+        connection.send_result(msg["id"], meal_times_to_api(entry.options))
+
+    @websocket_api.require_admin
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): f"{DOMAIN}/set_meal_times",
+            vol.Required("entry_id"): str,
+            vol.Required("meal_times"): {
+                str: vol.Schema(
+                    {
+                        vol.Required("start"): str,
+                        vol.Required("end"): str,
+                    }
+                )
+            },
+        }
+    )
+    @websocket_api.async_response
+    async def ws_set_meal_times(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict,
+    ) -> None:
+        entry = _get_config_entry(hass, msg["entry_id"])
+        if entry is None:
+            connection.send_error(msg["id"], "not_found", "Config entry not found")
+            return
+        try:
+            options = merge_meal_times_from_api(entry.options, msg["meal_times"])
+        except ValueError as err:
+            connection.send_error(msg["id"], "invalid_times", str(err))
+            return
+        hass.config_entries.async_update_entry(entry, options=options)
+        connection.send_result(msg["id"], meal_times_to_api(options))
+
     websocket_api.async_register_command(hass, ws_config_entries)
+    websocket_api.async_register_command(hass, ws_get_meal_times)
+    websocket_api.async_register_command(hass, ws_set_meal_times)
     hass.data[DOMAIN][_WS_REGISTERED] = True
 
 

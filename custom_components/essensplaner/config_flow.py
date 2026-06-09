@@ -13,8 +13,8 @@ from homeassistant.helpers import config_validation as cv
 from .const import CONF_HOUSEHOLD_NAME, DOMAIN, MEALPLAN_ENTRY_TYPES
 from .meal_times import (
     DEFAULT_MEAL_TIMES,
-    format_time_value,
     meal_time_option_key,
+    normalize_meal_time_option_values,
     parse_time_value,
 )
 
@@ -35,14 +35,6 @@ def _meal_times_options_schema(current: dict[str, Any]) -> vol.Schema:
             cv.time
         )
     return vol.Schema(fields)
-
-
-def _normalize_meal_time_options(user_input: dict[str, Any]) -> dict[str, str]:
-    """Store meal times as HH:MM strings in config entry options."""
-    result: dict[str, str] = {}
-    for key, value in user_input.items():
-        result[key] = format_time_value(value)
-    return result
 
 
 class EssensplanerConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -93,7 +85,7 @@ class EssensplanerOptionsFlow(OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(
                 title="",
-                data=_normalize_meal_time_options(user_input),
+                data=normalize_meal_time_option_values(user_input),
             )
 
         return self.async_show_form(

@@ -27,6 +27,8 @@ class PanelEssensplaner extends HTMLElement {
     this._cachedEntries = [];
     this._entriesLoading = false;
     this._formDraft = null;
+    this._mealTimes = {};
+    this._mealTimesOpen = false;
     this._dataLoaded = false;
     this._onClick = this._handleClick.bind(this);
     this._onInput = this._handleInput.bind(this);
@@ -61,7 +63,12 @@ class PanelEssensplaner extends HTMLElement {
   }
 
   _isEditing() {
-    return this._mode === "create" || this._mode === "edit" || !!this._dialog;
+    return (
+      this._mode === "create" ||
+      this._mode === "edit" ||
+      !!this._dialog ||
+      this._mealTimesOpen
+    );
   }
 
   _clickTarget(ev) {
@@ -203,6 +210,7 @@ class PanelEssensplaner extends HTMLElement {
     } catch (e) {
       this._notify("Essensplan laden fehlgeschlagen: " + (e.message || e), true);
     }
+    await this._loadMealTimes();
     this._dataLoaded = true;
     this._loading = false;
     this._paint();
@@ -313,6 +321,61 @@ class PanelEssensplaner extends HTMLElement {
 
   _mealLabel(id) {
     return MEALS.find((m) => m.id === id)?.label || id;
+  }
+
+  _toTimeInput(value) {
+    if (!value) return "";
+    const parts = String(value).split(":");
+    return `${parts[0].padStart(2, "0")}:${parts[1].padStart(2, "0")}`;
+  }
+
+  async _loadMealTimes() {
+    if (!this._entryId || !this._hass) return;
+    try {
+      const res = await this._hass.callWS({
+        type: "essensplaner/get_meal_times",
+        entry_id: this._entryId,
+      });
+      this._mealTimes = res || {};
+    } catch (e) {
+      console.warn("Essensplaner: Essenszeiten laden fehlgeschlagen", e);
+    }
+  }
+
+  async _saveMealTimes() {
+    const meal_times = {};
+    for (const m of MEALS) {
+      const start = this._formVal(`time-${m.id}-start`);
+      const end = this._formVal(`time-${m.id}-end`);
+      if (!start || !end) {
+        this._notify(`Bitte Zeiten für ${m.label} ausfüllen`, true);
+        return;
+      }
+      if (start >= end) {
+        this._notify(`${m.label}: Endzeit muss nach der Startzeit liegen`, true);
+        return;
+      }
+      meal_times[m.id] = { start, end };
+    }
+    try {
+      const res = await this._hass.callWS({
+        type: "essensplaner/set_meal_times",
+        entry_id: this._entryId,
+        meal_times,
+      });
+      this._mealTimes = res || meal_times;
+      this._mealTimesOpen = false;
+      this._notify("Essenszeiten gespeichert");
+      this._paint();
+    } catch (e) {
+      const msg = e?.message || String(e);
+      this._notify(
+        msg.includes("admin") || msg.includes("unauthorized")
+          ? "Nur Administratoren können Essenszeiten ändern"
+          : "Essenszeiten speichern fehlgeschlagen: " + msg,
+        true
+      );
+    }
   }
 
   _formVal(field) {
@@ -463,6 +526,7 @@ class PanelEssensplaner extends HTMLElement {
       this._entryId = ev.target.value;
       this._selected = null;
       this._mode = "view";
+      this._mealTimesOpen = false;
       this._dataLoaded = false;
       await this._load();
     }
@@ -511,6 +575,12 @@ class PanelEssensplaner extends HTMLElement {
     if (a === "week-prev") { this._weekOffset--; await this._reloadPlan(); return; }
     if (a === "week-next") { this._weekOffset++; await this._reloadPlan(); return; }
     if (a === "week-today") { this._weekOffset = 0; await this._reloadPlan(); return; }
+    if (a === "times-toggle") {
+      this._mealTimesOpen = !this._mealTimesOpen;
+      this._paint();
+      return;
+    }
+    if (a === "times-save") { await this._saveMealTimes(); return; }
     if (a === "plan-cell") {
       this._dialog = { date: t.dataset.date, type: t.dataset.type, label: this._mealLabel(t.dataset.type) };
       this._dialogSearch = "";
@@ -611,6 +681,37 @@ class PanelEssensplaner extends HTMLElement {
       </div>`;
   }
 
+  _renderMealTimesSection() {
+    const rows = MEALS.map((m) => {
+      const slot = this._mealTimes[m.id] || { start: "12:00", end: "13:00" };
+      return `
+        <div class="times-row">
+          <span class="times-label"><ha-icon icon="${m.icon}"></ha-icon> ${m.label}</span>
+          <label>von
+            <input type="time" class="inp time-inp" name="time-${m.id}-start" value="${this._toTimeInput(slot.start)}">
+          </label>
+          <label>bis
+            <input type="time" class="inp time-inp" name="time-${m.id}-end" value="${this._toTimeInput(slot.end)}">
+          </label>
+        </div>`;
+    }).join("");
+
+    return `
+      <div class="meal-times-card">
+        <button type="button" class="times-toggle" data-a="times-toggle">
+          <ha-icon icon="mdi:clock-outline"></ha-icon>
+          Essenszeiten
+          <ha-icon icon="${this._mealTimesOpen ? "mdi:chevron-up" : "mdi:chevron-down"}"></ha-icon>
+        </button>
+        ${this._mealTimesOpen ? `
+          <p class="muted times-hint">Standard-Uhrzeiten für die Kalenderansicht in Home Assistant.</p>
+          <div class="times-grid">${rows}</div>
+          <div class="btn-row">
+            <button type="button" class="btn primary" data-a="times-save">Speichern</button>
+          </div>` : ""}
+      </div>`;
+  }
+
   _renderPlanTab() {
     const { days, monday, sunday } = this._weekRange();
     const weekLabel = `${monday.toLocaleDateString("de-DE", { day: "2-digit", month: "short" })} – ${sunday.toLocaleDateString("de-DE", { day: "2-digit", month: "short", year: "numeric" })}`;
@@ -632,6 +733,7 @@ class PanelEssensplaner extends HTMLElement {
     }).join("");
 
     return `
+      ${this._renderMealTimesSection()}
       <div class="week-nav">
         <button class="btn icon" data-a="week-prev"><ha-icon icon="mdi:chevron-left"></ha-icon></button>
         <span class="week-label">${weekLabel}</span>
@@ -814,6 +916,30 @@ PanelEssensplaner._CSS = `
     height: 100%; min-height: 300px; color: var(--secondary-text-color); text-align: center; gap: 12px;
   }
   .empty-detail ha-icon { --mdc-icon-size: 48px; opacity: .4; }
+  .meal-times-card {
+    margin-bottom: 16px; padding: 14px 16px; border-radius: 12px;
+    border: 1px solid var(--divider-color, #e8e8e8);
+    background: var(--card-background-color, #fff);
+  }
+  .times-toggle {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    padding: 0; border: none; background: none; cursor: pointer;
+    font: inherit; font-weight: 500; color: inherit;
+  }
+  .times-toggle ha-icon { --mdc-icon-size: 20px; color: var(--primary-color); }
+  .times-toggle ha-icon:last-child { margin-left: auto; color: var(--secondary-text-color); }
+  .times-hint { margin: 12px 0 8px; font-size: 0.85rem; }
+  .times-grid { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+  .times-row {
+    display: grid; grid-template-columns: minmax(120px, 1fr) 1fr 1fr; gap: 10px; align-items: center;
+  }
+  @media (max-width: 700px) {
+    .times-row { grid-template-columns: 1fr; }
+  }
+  .times-label { display: flex; align-items: center; gap: 6px; font-size: 0.9rem; font-weight: 500; }
+  .times-label ha-icon { --mdc-icon-size: 18px; color: var(--primary-color); }
+  .times-row label { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--secondary-text-color); }
+  .time-inp { width: auto; min-width: 7rem; padding: 8px 10px; }
   .week-nav {
     display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap;
   }
