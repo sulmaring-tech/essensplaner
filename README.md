@@ -4,7 +4,9 @@
 
 Ein **lokaler Rezeptmanager, Essensplaner und Einkaufslisten-Plugin** für Home Assistant – inspiriert von [Mealie](https://mealie.io), aber ohne separaten Server.
 
-Das Plugin-Logo liegt unter `custom_components/essensplaner/brand/` (`icon.png` und `logo.png`) und wird von Home Assistant ab 2026.3 automatisch in der Integrations-UI angezeigt.
+Das Plugin-Logo liegt unter `custom_components/essensplaner/brand/` (`icon.png`, `icon@2x.png`, `logo.png`) und wird von Home Assistant ab 2026.3 in der Integrations-UI angezeigt.
+
+**HACS-Listenansicht:** Zeigt ggf. noch ein Platzhalterbild, weil HACS dort weiterhin die Brands-CDN nutzt. Das Icon im Update-Dialog und unter *Einstellungen → Geräte & Dienste* ist korrekt. Details und CDN-Einreichung: siehe [`brands/README.md`](brands/README.md).
 
 ## Funktionen
 
