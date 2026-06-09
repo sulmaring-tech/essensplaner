@@ -26,6 +26,7 @@ class PanelEssensplaner extends HTMLElement {
     this._searchTimer = null;
     this._cachedEntries = [];
     this._entriesLoading = false;
+    this._formDraft = null;
     this._onClick = this._handleClick.bind(this);
     this._onInput = this._handleInput.bind(this);
     this._onChange = this._handleChange.bind(this);
@@ -57,9 +58,13 @@ class PanelEssensplaner extends HTMLElement {
       this._load();
     } else if (!entries.length && !this._entriesLoading) {
       this._fetchEntries().then(() => this._paint());
-    } else {
+    } else if (!this._isEditing()) {
       this._paint();
     }
+  }
+
+  _isEditing() {
+    return this._mode === "create" || this._mode === "edit" || !!this._dialog;
   }
 
   set narrow(v) { this._narrow = v; }
@@ -157,9 +162,31 @@ class PanelEssensplaner extends HTMLElement {
 
   _notify(msg, error = false) {
     this._toast = { msg, error };
-    this._paint();
+    if (this._isEditing()) {
+      this._updateToast();
+    } else {
+      this._paint();
+    }
     clearTimeout(this._toastTimer);
-    this._toastTimer = setTimeout(() => { this._toast = null; this._paint(); }, 4000);
+    this._toastTimer = setTimeout(() => {
+      this._toast = null;
+      if (this._isEditing()) this._updateToast();
+      else this._paint();
+    }, 4000);
+  }
+
+  _updateToast() {
+    let el = this.querySelector(".toast");
+    if (!this._toast) {
+      el?.remove();
+      return;
+    }
+    if (!el) {
+      el = document.createElement("div");
+      this.appendChild(el);
+    }
+    el.className = `toast ${this._toast.error ? "err" : ""}`;
+    el.textContent = this._toast.msg;
   }
 
   _today() {
@@ -261,6 +288,7 @@ class PanelEssensplaner extends HTMLElement {
         await this._svc("create_recipe", payload);
         this._notify("Rezept erstellt");
       }
+      this._formDraft = null;
       this._mode = "view";
       this._selected = null;
       await this._load();
@@ -328,6 +356,11 @@ class PanelEssensplaner extends HTMLElement {
   _handleInput(ev) {
     const el = ev.target;
     if (el.id === "import-url") { this._importUrl = el.value; return; }
+    if (el.name && (this._mode === "create" || this._mode === "edit")) {
+      if (!this._formDraft) this._formDraft = {};
+      this._formDraft[el.name] = el.value;
+      return;
+    }
     if (el.id === "search") {
       this._search = el.value;
       clearTimeout(this._searchTimer);
@@ -337,8 +370,23 @@ class PanelEssensplaner extends HTMLElement {
     if (el.id === "dialog-search") {
       this._dialogSearch = el.value;
       clearTimeout(this._searchTimer);
-      this._searchTimer = setTimeout(() => this._paint(), 150);
+      this._searchTimer = setTimeout(() => this._paintDialogSearch(), 150);
     }
+  }
+
+  _paintDialogSearch() {
+    if (!this._dialog) return;
+    const q = (this._dialogSearch || "").toLowerCase();
+    const list = this.querySelector(".pick-list");
+    if (!list) return;
+    const picks = this._recipes.filter((r) => !q || r.name.toLowerCase().includes(q));
+    list.innerHTML = picks.length
+      ? picks.map((r) => `
+          <button class="pick-item" data-a="plan-pick" data-id="${r.id}">
+            <ha-icon icon="mdi:food"></ha-icon>
+            <span>${this._esc(r.name)}</span>
+          </button>`).join("")
+      : `<p class="muted">Kein Rezept gefunden</p>`;
   }
 
   async _handleChange(ev) {
@@ -364,15 +412,21 @@ class PanelEssensplaner extends HTMLElement {
     if (a === "tab") { this._tab = t.dataset.tab; this._paint(); return; }
     if (a === "reload") { await this._load(); return; }
     if (a === "import") { await this._import(); return; }
-    if (a === "new") { this._selected = null; this._mode = "create"; this._paint(); return; }
+    if (a === "new") {
+      this._selected = null;
+      this._formDraft = null;
+      this._mode = "create";
+      this._paint();
+      return;
+    }
     if (a === "select") {
       this._selected = this._recipes.find((r) => r.id === t.dataset.id) || null;
       this._mode = "view";
       this._paint();
       return;
     }
-    if (a === "edit") { this._mode = "edit"; this._paint(); return; }
-    if (a === "cancel") { this._mode = "view"; this._paint(); return; }
+    if (a === "edit") { this._formDraft = null; this._mode = "edit"; this._paint(); return; }
+    if (a === "cancel") { this._formDraft = null; this._mode = "view"; this._paint(); return; }
     if (a === "save") { await this._saveRecipe(); return; }
     if (a === "delete") { await this._deleteRecipe(t.dataset.id); return; }
     if (a === "shop") { await this._addShopping(t.dataset.id); return; }
@@ -393,7 +447,19 @@ class PanelEssensplaner extends HTMLElement {
   /* ── render blocks ────────────────────────────────── */
 
   _renderForm(r) {
-    const data = r || { name: "", description: "", ingredients: [], instructions: [] };
+    const base = r || { name: "", description: "", ingredients: [], instructions: [] };
+    const data = {
+      name: base.name || "",
+      description: base.description || "",
+      ingredients: base.ingredients || [],
+      instructions: base.instructions || [],
+    };
+    if (this._formDraft) {
+      if (this._formDraft.name !== undefined) data.name = this._formDraft.name;
+      if (this._formDraft.description !== undefined) data.description = this._formDraft.description;
+      if (this._formDraft.ingredients !== undefined) data.ingredients = this._formDraft.ingredients.split("\n");
+      if (this._formDraft.instructions !== undefined) data.instructions = this._formDraft.instructions.split("\n");
+    }
     const title = this._mode === "edit" ? "Rezept bearbeiten" : "Neues Rezept";
     return `
       <div class="form-card">
