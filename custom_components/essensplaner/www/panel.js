@@ -41,6 +41,8 @@ class PanelEssensplaner extends HTMLElement {
     this._onlinePreview = null;
     this._onlineImporting = false;
     this._dataLoaded = false;
+    this._stats = null;
+    this._statsLoading = false;
     this._onClick = this._handleClick.bind(this);
     this._onInput = this._handleInput.bind(this);
     this._onChange = this._handleChange.bind(this);
@@ -512,6 +514,24 @@ class PanelEssensplaner extends HTMLElement {
     return lists;
   }
 
+  async _loadStatistics() {
+    if (!this._entryId || !this._hass) return;
+    this._statsLoading = true;
+    this._paint();
+    try {
+      this._stats = await this._hass.callWS({
+        type: "essensplaner/get_statistics",
+        entry_id: this._entryId,
+      });
+    } catch (e) {
+      console.warn("Essensplaner: Statistiken laden fehlgeschlagen", e);
+      this._stats = null;
+      this._notify("Statistiken laden fehlgeschlagen: " + (e?.message || e), true);
+    }
+    this._statsLoading = false;
+    this._paint();
+  }
+
   async _loadPanelSettings() {
     if (!this._entryId || !this._hass) return;
     try {
@@ -956,10 +976,15 @@ class PanelEssensplaner extends HTMLElement {
     if (a === "tab") {
       this._tab = t.dataset.tab;
       if (this._tab === "config") await this._loadPanelSettings();
+      if (this._tab === "stats") await this._loadStatistics();
       this._paint();
       return;
     }
-    if (a === "reload") { await this._load(); return; }
+    if (a === "reload") {
+      if (this._tab === "stats") await this._loadStatistics();
+      else await this._load();
+      return;
+    }
     if (a === "import") { await this._import(); return; }
     if (a === "new") {
       this._selected = null;
@@ -1305,6 +1330,128 @@ class PanelEssensplaner extends HTMLElement {
       </label>`;
   }
 
+  _renderStatCard(icon, label, value, hint = "", accent = "") {
+    return `
+      <article class="stat-card ${accent}">
+        <div class="stat-icon"><ha-icon icon="${icon}"></ha-icon></div>
+        <div class="stat-body">
+          <span class="stat-value">${this._esc(value)}</span>
+          <span class="stat-label">${this._esc(label)}</span>
+          ${hint ? `<span class="stat-hint">${this._esc(hint)}</span>` : ""}
+        </div>
+      </article>`;
+  }
+
+  _renderStatBars(items, valueKey = "count", maxKey = "max", labelKey = "label") {
+    if (!items?.length) {
+      return `<p class="muted">Noch keine Daten</p>`;
+    }
+    const maxVal = Math.max(...items.map((i) => i[maxKey] || i[valueKey] || 0), 1);
+    return items
+      .map((item) => {
+        const val = item[valueKey] || 0;
+        const pct = Math.round((val / maxVal) * 100);
+        const icon = item.icon ? `<ha-icon icon="${this._esc(item.icon)}"></ha-icon>` : "";
+        return `
+          <div class="stat-bar-row">
+            <span class="stat-bar-label">${icon}${this._esc(item[labelKey])}</span>
+            <div class="stat-bar-track"><div class="stat-bar-fill" style="width:${pct}%"></div></div>
+            <span class="stat-bar-val">${val}</span>
+          </div>`;
+      })
+      .join("");
+  }
+
+  _renderStatsTab() {
+    if (this._statsLoading) {
+      return `<div class="loading"><ha-circular-progress active></ha-circular-progress></div>`;
+    }
+    if (!this._stats) {
+      return `<p class="muted center">Statistiken konnten nicht geladen werden.</p>`;
+    }
+
+    const s = this._stats;
+    const weekPct = s.mealplan_week_percent ?? 0;
+    const topTags = (s.top_tags || [])
+      .map(
+        (tag) =>
+          `<span class="stat-tag" style="--tag-weight:${Math.min(tag.count, 8)}">
+            <span class="stat-tag-name">${this._esc(tag.name)}</span>
+            <span class="stat-tag-count">${tag.count}</span>
+          </span>`
+      )
+      .join("");
+    const topRecipes = (s.top_planned_recipes || [])
+      .map(
+        (r, idx) =>
+          `<li class="stat-rank-item">
+            <span class="stat-rank">${idx + 1}</span>
+            <span class="stat-rank-name">${this._esc(r.name)}</span>
+            <span class="stat-rank-count">${r.count}×</span>
+          </li>`
+      )
+      .join("");
+
+    return `
+      <div class="stats-page">
+        <section class="stats-hero">
+          <div class="stats-hero-text">
+            <h2>Überblick</h2>
+            <p class="muted">Aktuelle Zahlen zu Rezepten, Essensplan und Einkauf</p>
+          </div>
+          <div class="stats-ring" style="--pct:${weekPct}">
+            <div class="stats-ring-inner">
+              <strong>${weekPct}%</strong>
+              <span>Woche geplant</span>
+            </div>
+          </div>
+        </section>
+
+        <div class="stats-kpi-grid">
+          ${this._renderStatCard("mdi:book-open-page-variant", "Rezepte", s.total_recipes, "in deiner Sammlung", "accent-recipes")}
+          ${this._renderStatCard("mdi:calendar-check", "Heute geplant", `${s.mealplan_today || 0}/${s.mealplan_today_total || 3}`, "Mahlzeiten", "accent-today")}
+          ${this._renderStatCard("mdi:calendar-week", "Diese Woche", `${s.mealplan_week_planned || 0}/${s.mealplan_week_slots || 21}`, "geplante Slots", "accent-week")}
+          ${this._renderStatCard("mdi:cart", "Einkauf offen", s.shopping_items_open || 0, `${s.shopping_items_done || 0} erledigt`, "accent-shop")}
+        </div>
+
+        <div class="stats-grid">
+          <section class="stats-panel">
+            <h3><ha-icon icon="mdi:calendar-month"></ha-icon> Essensplan diese Woche</h3>
+            <div class="stats-bars">${this._renderStatBars(s.mealplan_by_type)}</div>
+          </section>
+
+          <section class="stats-panel">
+            <h3><ha-icon icon="mdi:food-apple"></ha-icon> Rezepte nach Mahlzeit</h3>
+            <div class="stats-bars">${this._renderStatBars(s.recipes_by_meal_tag, "count", "count")}</div>
+          </section>
+
+          <section class="stats-panel">
+            <h3><ha-icon icon="mdi:tag-multiple"></ha-icon> Beliebte Tags</h3>
+            <div class="stat-tags">${topTags || '<p class="muted">Noch keine Tags</p>'}</div>
+          </section>
+
+          <section class="stats-panel">
+            <h3><ha-icon icon="mdi:trophy"></ha-icon> Top-Rezepte diese Woche</h3>
+            <ol class="stat-rank-list">${topRecipes || '<li class="muted">Noch nichts geplant</li>'}</ol>
+          </section>
+        </div>
+
+        <section class="stats-panel stats-panel-wide">
+          <h3><ha-icon icon="mdi:chart-box"></ha-icon> Sammlung im Detail</h3>
+          <div class="stats-detail-grid">
+            ${this._renderStatCard("mdi:shape", "Kategorien", s.total_categories)}
+            ${this._renderStatCard("mdi:tag", "Tags", s.total_tags)}
+            ${this._renderStatCard("mdi:knife", "Küchengeräte", s.total_tools)}
+            ${this._renderStatCard("mdi:book-multiple", "Kochbücher", s.total_cookbooks)}
+            ${this._renderStatCard("mdi:image", "Mit Bild", s.recipes_with_image)}
+            ${this._renderStatCard("mdi:pot-steam", "Mit Zubereitung", s.recipes_with_instructions)}
+            ${this._renderStatCard("mdi:basket", "Ø Zutaten", s.recipes_avg_ingredients)}
+            ${this._renderStatCard("mdi:format-list-bulleted", "Einkauf gesamt", s.shopping_items_total)}
+          </div>
+        </section>
+      </div>`;
+  }
+
   _renderConfigTab() {
     return `
       <div class="config-page">
@@ -1543,6 +1690,8 @@ class PanelEssensplaner extends HTMLElement {
       body = this._renderRecipesTab();
     } else if (this._tab === "config") {
       body = this._renderConfigTab();
+    } else if (this._tab === "stats") {
+      body = this._renderStatsTab();
     } else {
       body = this._renderPlanTab();
     }
@@ -1560,6 +1709,7 @@ class PanelEssensplaner extends HTMLElement {
       <nav class="tabs">
         <button class="tab ${this._tab === "recipes" ? "on" : ""}" data-a="tab" data-tab="recipes">Rezepte</button>
         <button class="tab ${this._tab === "plan" ? "on" : ""}" data-a="tab" data-tab="plan">Essensplan</button>
+        <button class="tab ${this._tab === "stats" ? "on" : ""}" data-a="tab" data-tab="stats">Statistiken</button>
         <button class="tab ${this._tab === "config" ? "on" : ""}" data-a="tab" data-tab="config">Config</button>
       </nav>
       <main class="content">${body}</main>
@@ -2050,6 +2200,123 @@ PanelEssensplaner._CSS = `
   .muted { color: var(--secondary-text-color); }
   .center { text-align: center; padding: 24px; }
   .alert { padding: 20px; border-radius: 10px; background: var(--warning-color, #fff3e0); }
+  .stats-page { display: flex; flex-direction: column; gap: 20px; }
+  .stats-hero {
+    display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap;
+    padding: 22px 24px; border-radius: 16px;
+    background: linear-gradient(135deg,
+      color-mix(in srgb, var(--primary-color) 14%, var(--card-background-color, #fff)),
+      var(--card-background-color, #fff));
+    border: 1px solid var(--divider-color, #e0e0e0);
+    box-shadow: 0 4px 18px rgba(0,0,0,.05);
+  }
+  .stats-hero h2 { margin: 0 0 6px; font-size: 1.25rem; }
+  .stats-ring {
+    --pct: 0; width: 108px; height: 108px; border-radius: 50%; flex-shrink: 0;
+    background: conic-gradient(
+      var(--primary-color) calc(var(--pct) * 1%),
+      color-mix(in srgb, var(--primary-color) 12%, var(--secondary-background-color, #eee)) 0
+    );
+    display: flex; align-items: center; justify-content: center;
+  }
+  .stats-ring-inner {
+    width: 78px; height: 78px; border-radius: 50%;
+    background: var(--card-background-color, #fff);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; line-height: 1.2; font-size: 0.72rem; color: var(--secondary-text-color);
+  }
+  .stats-ring-inner strong { font-size: 1.35rem; color: var(--primary-color); }
+  .stats-kpi-grid {
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px;
+  }
+  @media (max-width: 1100px) { .stats-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 600px) { .stats-kpi-grid { grid-template-columns: 1fr; } }
+  .stat-card {
+    display: flex; align-items: flex-start; gap: 14px; padding: 16px 18px;
+    border-radius: 14px; border: 1px solid var(--divider-color, #e8e8e8);
+    background: var(--card-background-color, #fff);
+    box-shadow: 0 2px 10px rgba(0,0,0,.04);
+  }
+  .stat-icon {
+    width: 42px; height: 42px; border-radius: 12px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: color-mix(in srgb, var(--primary-color) 12%, transparent);
+    color: var(--primary-color);
+  }
+  .stat-icon ha-icon { --mdc-icon-size: 22px; }
+  .stat-card.accent-recipes .stat-icon { background: color-mix(in srgb, #5e35b1 14%, transparent); color: #5e35b1; }
+  .stat-card.accent-today .stat-icon { background: color-mix(in srgb, #e65100 14%, transparent); color: #e65100; }
+  .stat-card.accent-week .stat-icon { background: color-mix(in srgb, #2e7d32 14%, transparent); color: #2e7d32; }
+  .stat-card.accent-shop .stat-icon { background: color-mix(in srgb, #0277bd 14%, transparent); color: #0277bd; }
+  .stat-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .stat-value { font-size: 1.45rem; font-weight: 700; line-height: 1.1; }
+  .stat-label { font-size: 0.82rem; font-weight: 600; color: var(--secondary-text-color); }
+  .stat-hint { font-size: 0.75rem; color: var(--secondary-text-color); }
+  .stats-grid {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px;
+  }
+  @media (max-width: 900px) { .stats-grid { grid-template-columns: 1fr; } }
+  .stats-panel {
+    padding: 18px 20px; border-radius: 14px;
+    border: 1px solid var(--divider-color, #e8e8e8);
+    background: var(--card-background-color, #fff);
+    box-shadow: 0 2px 10px rgba(0,0,0,.04);
+  }
+  .stats-panel-wide { margin-top: 0; }
+  .stats-panel h3 {
+    margin: 0 0 14px; font-size: 0.95rem; font-weight: 600;
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .stats-panel h3 ha-icon { --mdc-icon-size: 20px; color: var(--primary-color); }
+  .stats-bars { display: flex; flex-direction: column; gap: 10px; }
+  .stat-bar-row {
+    display: grid; grid-template-columns: 108px 1fr 28px; gap: 10px; align-items: center;
+  }
+  .stat-bar-label {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 0.8rem; font-weight: 600; color: var(--secondary-text-color);
+  }
+  .stat-bar-label ha-icon { --mdc-icon-size: 16px; }
+  .stat-bar-track {
+    height: 10px; border-radius: 999px; overflow: hidden;
+    background: var(--secondary-background-color, #eee);
+  }
+  .stat-bar-fill {
+    height: 100%; border-radius: 999px;
+    background: linear-gradient(90deg, var(--primary-color), color-mix(in srgb, var(--primary-color) 65%, #fff));
+  }
+  .stat-bar-val { font-size: 0.82rem; font-weight: 700; text-align: right; }
+  .stat-tags { display: flex; flex-wrap: wrap; gap: 8px; }
+  .stat-tag {
+    display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px;
+    border-radius: 999px; font-size: 0.8rem;
+    background: color-mix(in srgb, var(--primary-color) calc(8% + var(--tag-weight, 1) * 3%), transparent);
+    border: 1px solid color-mix(in srgb, var(--primary-color) 18%, transparent);
+  }
+  .stat-tag-count {
+    font-weight: 700; color: var(--primary-color);
+    background: color-mix(in srgb, var(--primary-color) 12%, transparent);
+    padding: 1px 6px; border-radius: 999px; font-size: 0.72rem;
+  }
+  .stat-rank-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .stat-rank-item {
+    display: grid; grid-template-columns: 28px 1fr auto; gap: 10px; align-items: center;
+    padding: 8px 10px; border-radius: 10px; background: var(--secondary-background-color, #f5f5f5);
+  }
+  .stat-rank {
+    width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 0.82rem; background: var(--card-background-color, #fff);
+    color: var(--primary-color);
+  }
+  .stat-rank-name { font-weight: 600; font-size: 0.88rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .stat-rank-count { font-size: 0.78rem; font-weight: 700; color: var(--secondary-text-color); }
+  .stats-detail-grid {
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px;
+  }
+  @media (max-width: 1100px) { .stats-detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 600px) { .stats-detail-grid { grid-template-columns: 1fr; } }
+  .stats-detail-grid .stat-card { padding: 12px 14px; }
+  .stats-detail-grid .stat-value { font-size: 1.2rem; }
 `;
 
 customElements.define("panel-essensplaner", PanelEssensplaner);

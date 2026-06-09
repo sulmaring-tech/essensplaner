@@ -20,6 +20,7 @@ from .const import (
     PANEL_URL_PATH,
 )
 from .meal_times import meal_times_to_api, merge_meal_times_from_api
+from .panel_stats import get_panel_statistics
 from .shopping_targets import (
     is_valid_target,
     normalize_stored_target,
@@ -32,7 +33,7 @@ _PANEL_REGISTERED = "panel_registered"
 _STATIC_REGISTERED = "static_registered"
 _LOVELACE_CARD_REGISTERED = "lovelace_card_registered"
 _WS_REGISTERED = "ws_registered"
-_PANEL_WS_VERSION = 3
+_PANEL_WS_VERSION = 4
 _PANEL_WS_VERSION_KEY = "panel_ws_version"
 
 
@@ -139,6 +140,30 @@ def _async_register_ws(hass: HomeAssistant) -> None:
             connection.send_error(msg["id"], "settings_failed", str(err))
             return
         connection.send_result(msg["id"], settings)
+
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): f"{DOMAIN}/get_statistics",
+            vol.Required("entry_id"): str,
+        }
+    )
+    @websocket_api.async_response
+    async def ws_get_statistics(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict,
+    ) -> None:
+        entry = _get_config_entry(hass, msg["entry_id"])
+        if entry is None:
+            connection.send_error(msg["id"], "not_found", "Config entry not found")
+            return
+        try:
+            stats = get_panel_statistics(entry.runtime_data.store)
+        except Exception as err:  # noqa: BLE001
+            LOGGER.exception("Panel statistics failed")
+            connection.send_error(msg["id"], "statistics_failed", str(err))
+            return
+        connection.send_result(msg["id"], stats)
 
     @websocket_api.require_admin
     @websocket_api.websocket_command(
@@ -251,6 +276,7 @@ def _async_register_ws(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_config_entries)
     websocket_api.async_register_command(hass, ws_get_meal_times)
     websocket_api.async_register_command(hass, ws_get_panel_settings)
+    websocket_api.async_register_command(hass, ws_get_statistics)
     websocket_api.async_register_command(hass, ws_set_meal_times)
     websocket_api.async_register_command(hass, ws_set_default_shopping_list)
     websocket_api.async_register_command(hass, ws_search_recipes_online)
