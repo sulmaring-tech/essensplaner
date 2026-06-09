@@ -44,14 +44,17 @@ class PanelEssensplaner extends HTMLElement {
   }
 
   set hass(hass) {
-    const first = !this._hass;
+    const hadEntry = !!this._entryId;
     this._hass = hass;
-    if (!this._entryId) {
-      const entries = this._entries();
-      if (entries.length) this._entryId = entries[0].entry_id;
+    const entries = this._entries();
+    if (!this._entryId && entries.length) {
+      this._entryId = entries[0].entry_id;
     }
-    if (first && this._entryId) this._load();
-    else this._paint();
+    if (this._entryId && !hadEntry) {
+      this._load();
+    } else {
+      this._paint();
+    }
   }
 
   set narrow(v) { this._narrow = v; }
@@ -61,8 +64,10 @@ class PanelEssensplaner extends HTMLElement {
   /* ── data ─────────────────────────────────────────── */
 
   _entries() {
-    if (!this._hass?.config?.entries) return [];
-    return Object.values(this._hass.config.entries).filter((e) => e.domain === "essensplaner");
+    const raw = this._hass?.configEntries;
+    if (!raw) return [];
+    const list = Array.isArray(raw) ? raw : Object.values(raw);
+    return list.filter((e) => e.domain === "essensplaner");
   }
 
   async _svc(service, data = {}) {
