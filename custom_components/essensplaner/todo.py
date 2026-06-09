@@ -93,15 +93,12 @@ class EssensplanerShoppingListEntity(EssensplanerEntity, TodoListEntity):
         """Initialize todo entity."""
         super().__init__(coordinator, list_id)
         self._list_id = list_id
+        self._attr_name = coordinator.data[list_id].shopping_list.name
 
     @property
     def shopping_list_data(self):
         """Return shopping list data."""
         return self.coordinator.data[self._list_id]
-
-    @property
-    def _attr_name(self) -> str:
-        return self.shopping_list_data.shopping_list.name
 
     @property
     def todo_items(self) -> list[TodoItem] | None:
