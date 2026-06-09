@@ -43,6 +43,7 @@ class PanelEssensplaner extends HTMLElement {
     this._dataLoaded = false;
     this._stats = null;
     this._statsLoading = false;
+    this._statsPlanPeriod = "week";
     this._onClick = this._handleClick.bind(this);
     this._onInput = this._handleInput.bind(this);
     this._onChange = this._handleChange.bind(this);
@@ -993,6 +994,11 @@ class PanelEssensplaner extends HTMLElement {
       this._paint();
       return;
     }
+    if (a === "stats-period") {
+      this._statsPlanPeriod = t.dataset.period || "week";
+      this._paint();
+      return;
+    }
     if (a === "filter-meal") {
       this._mealFilter = t.dataset.meal || null;
       this._paint();
@@ -1362,6 +1368,54 @@ class PanelEssensplaner extends HTMLElement {
       .join("");
   }
 
+  _renderTopPlannedRecipesSection(stats) {
+    const period = this._statsPlanPeriod || "week";
+    const block = stats?.top_planned_recipes_by_period?.[period] || {
+      label: "",
+      items: stats?.top_planned_recipes || [],
+    };
+    const items = block.items || [];
+    const maxCount = Math.max(...items.map((r) => r.count || 0), 1);
+    const list = items.length
+      ? items
+          .map(
+            (r, idx) => `
+            <li class="stat-rank-item stat-rank-rich">
+              <span class="stat-rank">${idx + 1}</span>
+              <div class="stat-rank-main">
+                <span class="stat-rank-name">${this._esc(r.name)}</span>
+                <div class="stat-bar-track compact">
+                  <div class="stat-bar-fill" style="width:${Math.round(((r.count || 0) / maxCount) * 100)}%"></div>
+                </div>
+              </div>
+              <span class="stat-rank-count">${r.count}×</span>
+            </li>`
+          )
+          .join("")
+      : '<li class="muted">In diesem Zeitraum noch nichts im Essensplan</li>';
+
+    const filters = [
+      { id: "week", label: "Woche" },
+      { id: "month", label: "Monat" },
+      { id: "year", label: "Jahr" },
+    ]
+      .map(
+        (f) =>
+          `<button type="button" class="filter-chip ${period === f.id ? "on" : ""}" data-a="stats-period" data-period="${f.id}">${f.label}</button>`
+      )
+      .join("");
+
+    return `
+      <section class="stats-panel stats-panel-wide">
+        <div class="stats-panel-head">
+          <h3><ha-icon icon="mdi:calendar-star"></ha-icon> Häufigste Rezepte im Essensplan</h3>
+          <span class="stats-period-label">${this._esc(block.label || "")}</span>
+        </div>
+        <div class="stats-period-filters">${filters}</div>
+        <ol class="stat-rank-list stat-rank-list-rich">${list}</ol>
+      </section>`;
+  }
+
   _renderStatsTab() {
     if (this._statsLoading) {
       return `<div class="loading"><ha-circular-progress active></ha-circular-progress></div>`;
@@ -1381,16 +1435,7 @@ class PanelEssensplaner extends HTMLElement {
           </span>`
       )
       .join("");
-    const topRecipes = (s.top_planned_recipes || [])
-      .map(
-        (r, idx) =>
-          `<li class="stat-rank-item">
-            <span class="stat-rank">${idx + 1}</span>
-            <span class="stat-rank-name">${this._esc(r.name)}</span>
-            <span class="stat-rank-count">${r.count}×</span>
-          </li>`
-      )
-      .join("");
+    const topPlannedSection = this._renderTopPlannedRecipesSection(s);
 
     return `
       <div class="stats-page">
@@ -1429,12 +1474,9 @@ class PanelEssensplaner extends HTMLElement {
             <h3><ha-icon icon="mdi:tag-multiple"></ha-icon> Beliebte Tags</h3>
             <div class="stat-tags">${topTags || '<p class="muted">Noch keine Tags</p>'}</div>
           </section>
-
-          <section class="stats-panel">
-            <h3><ha-icon icon="mdi:trophy"></ha-icon> Top-Rezepte diese Woche</h3>
-            <ol class="stat-rank-list">${topRecipes || '<li class="muted">Noch nichts geplant</li>'}</ol>
-          </section>
         </div>
+
+        ${topPlannedSection}
 
         <section class="stats-panel stats-panel-wide">
           <h3><ha-icon icon="mdi:chart-box"></ha-icon> Sammlung im Detail</h3>
@@ -2310,6 +2352,21 @@ PanelEssensplaner._CSS = `
   }
   .stat-rank-name { font-weight: 600; font-size: 0.88rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .stat-rank-count { font-size: 0.78rem; font-weight: 700; color: var(--secondary-text-color); }
+  .stat-rank-list-rich { gap: 10px; }
+  .stat-rank-rich {
+    grid-template-columns: 28px 1fr auto;
+    align-items: center;
+    padding: 10px 12px;
+  }
+  .stat-rank-main { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .stat-bar-track.compact { height: 6px; }
+  .stats-panel-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap; margin-bottom: 10px;
+  }
+  .stats-panel-head h3 { margin: 0; }
+  .stats-period-label { font-size: 0.82rem; color: var(--secondary-text-color); }
+  .stats-period-filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
   .stats-detail-grid {
     display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px;
   }

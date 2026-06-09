@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import calendar
 from collections import Counter
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Any
 
 from homeassistant.util import dt as dt_util
@@ -11,13 +12,92 @@ from homeassistant.util import dt as dt_util
 from .const import DASHBOARD_MEAL_TYPES, MEAL_TYPE_ICONS, MEAL_TYPE_LABELS
 from .storage import EssensplanerStore
 
+GERMAN_MONTHS = (
+    "Januar",
+    "Februar",
+    "März",
+    "April",
+    "Mai",
+    "Juni",
+    "Juli",
+    "August",
+    "September",
+    "Oktober",
+    "November",
+    "Dezember",
+)
+
+
+def _mealplan_recipe_name(store: EssensplanerStore, mealplan) -> str | None:
+    """Return display name for a planned meal entry."""
+    if mealplan.recipe_id:
+        recipe = store.data.recipes.get(mealplan.recipe_id)
+        return recipe.name if recipe else mealplan.title or "Unbekannt"
+    if mealplan.title:
+        return mealplan.title
+    return None
+
+
+def _top_planned_recipes_in_range(
+    store: EssensplanerStore,
+    start_date: date,
+    end_date: date,
+    *,
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    """Return most frequently planned recipes in a date range."""
+    counts: Counter[str] = Counter()
+    for mealplan in store.get_mealplans(start_date, end_date):
+        name = _mealplan_recipe_name(store, mealplan)
+        if name:
+            counts[name] += 1
+    return [{"name": name, "count": count} for name, count in counts.most_common(limit)]
+
+
+def _period_bounds(period: str, today: date) -> tuple[date, date, str]:
+    """Return start/end dates and a German label for week, month, or year."""
+    if period == "month":
+        start = today.replace(day=1)
+        last_day = calendar.monthrange(today.year, today.month)[1]
+        end = today.replace(day=last_day)
+        label = f"{GERMAN_MONTHS[today.month - 1]} {today.year}"
+        return start, end, label
+
+    if period == "year":
+        start = today.replace(month=1, day=1)
+        end = today.replace(month=12, day=31)
+        return start, end, str(today.year)
+
+    start = today - timedelta(days=today.weekday())
+    end = start + timedelta(days=6)
+    label = (
+        f"KW {today.isocalendar()[1]} · "
+        f"{start.strftime('%d.%m.')} – {end.strftime('%d.%m.%Y')}"
+    )
+    return start, end, label
+
+
+def _top_planned_recipes_by_period(
+    store: EssensplanerStore, today: date
+) -> dict[str, dict[str, Any]]:
+    """Return top planned recipes for week, month, and year."""
+    result: dict[str, dict[str, Any]] = {}
+    for period in ("week", "month", "year"):
+        start, end, label = _period_bounds(period, today)
+        result[period] = {
+            "label": label,
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+            "items": _top_planned_recipes_in_range(store, start, end),
+        }
+    return result
+
 
 def get_panel_statistics(store: EssensplanerStore) -> dict[str, Any]:
     """Return extended statistics for the panel UI."""
     data = store.data
     today = dt_util.now().date()
-    week_start = today - timedelta(days=today.weekday())
-    week_end = week_start + timedelta(days=6)
+    week_start, week_end, _ = _period_bounds("week", today)
 
     base = data.compute_statistics().to_dict()
     recipes = list(data.recipes.values())
@@ -69,13 +149,7 @@ def get_panel_statistics(store: EssensplanerStore) -> dict[str, Any]:
             if tag in meal_tag_counts:
                 meal_tag_counts[tag] += 1
 
-    recipe_plan_counts: Counter[str] = Counter()
-    for mealplan in week_plans:
-        if not mealplan.recipe_id:
-            continue
-        recipe = data.recipes.get(mealplan.recipe_id)
-        name = recipe.name if recipe else mealplan.title or "Unbekannt"
-        recipe_plan_counts[name] += 1
+    top_by_period = _top_planned_recipes_by_period(store, today)
 
     return {
         **base,
@@ -109,8 +183,6 @@ def get_panel_statistics(store: EssensplanerStore) -> dict[str, Any]:
             {"name": name, "count": count}
             for name, count in tag_counts.most_common(8)
         ],
-        "top_planned_recipes": [
-            {"name": name, "count": count}
-            for name, count in recipe_plan_counts.most_common(5)
-        ],
+        "top_planned_recipes_by_period": top_by_period,
+        "top_planned_recipes": top_by_period["week"]["items"],
     }
