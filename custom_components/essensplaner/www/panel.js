@@ -64,6 +64,13 @@ class PanelEssensplaner extends HTMLElement {
     return this._mode === "create" || this._mode === "edit" || !!this._dialog;
   }
 
+  _clickTarget(ev) {
+    for (const el of ev.composedPath()) {
+      if (el instanceof HTMLElement && el.dataset?.a) return el;
+    }
+    return null;
+  }
+
   set narrow(v) { this._narrow = v; }
   set route(v) { this._route = v; }
   set panel(v) {
@@ -444,8 +451,8 @@ class PanelEssensplaner extends HTMLElement {
     const picks = this._recipes.filter((r) => !q || r.name.toLowerCase().includes(q));
     list.innerHTML = picks.length
       ? picks.map((r) => `
-          <button class="pick-item" data-a="plan-pick" data-id="${r.id}">
-            <ha-icon icon="mdi:food"></ha-icon>
+          <button type="button" class="pick-item" data-a="plan-pick" data-id="${r.id}">
+            <span class="pick-icon">🍽</span>
             <span>${this._esc(r.name)}</span>
           </button>`).join("")
       : `<p class="muted">Kein Rezept gefunden</p>`;
@@ -462,11 +469,19 @@ class PanelEssensplaner extends HTMLElement {
   }
 
   async _handleClick(ev) {
-    const t = ev.target.closest("[data-a]");
+    const t = this._clickTarget(ev);
     if (!t) {
-      if (ev.target.classList.contains("overlay")) {
-        this._dialog = null;
-        this._paint();
+      const hitOverlay = ev.composedPath().some(
+        (el) => el instanceof HTMLElement && el.classList?.contains("overlay")
+      );
+      if (hitOverlay && this._dialog) {
+        const onBackdrop = ev.composedPath().some(
+          (el) => el instanceof HTMLElement && el.classList?.contains("overlay") && el === ev.target
+        );
+        if (onBackdrop) {
+          this._dialog = null;
+          this._paint();
+        }
       }
       return;
     }
@@ -608,7 +623,7 @@ class PanelEssensplaner extends HTMLElement {
         const name = this._planName(p);
         return `
           <td>
-            <button class="plan-cell ${name ? "filled" : ""} ${today ? "today-col" : ""}" data-a="plan-cell" data-date="${day}" data-type="${m.id}">
+            <button type="button" class="plan-cell ${name ? "filled" : ""} ${today ? "today-col" : ""}" data-a="plan-cell" data-date="${day}" data-type="${m.id}">
               ${name ? `<span class="plan-name">${this._esc(name)}</span>` : `<span class="plan-empty">+ Zuweisen</span>`}
             </button>
           </td>`;
@@ -641,19 +656,19 @@ class PanelEssensplaner extends HTMLElement {
 
     const list = picks.length
       ? picks.map((r) => `
-          <button class="pick-item" data-a="plan-pick" data-id="${r.id}">
-            <ha-icon icon="mdi:food"></ha-icon>
+          <button type="button" class="pick-item" data-a="plan-pick" data-id="${r.id}">
+            <span class="pick-icon">🍽</span>
             <span>${this._esc(r.name)}</span>
           </button>`).join("")
       : `<p class="muted">Kein Rezept gefunden</p>`;
 
     return `
       <div class="overlay">
-        <div class="dialog" onclick="event.stopPropagation()">
+        <div class="dialog">
           <div class="dialog-head">
             <h3>${label}</h3>
             <span class="muted">${wd}, ${dm}</span>
-            <button class="btn icon close" data-a="dialog-close"><ha-icon icon="mdi:close"></ha-icon></button>
+            <button type="button" class="btn icon close" data-a="dialog-close" title="Schließen">✕</button>
           </div>
           ${current ? `<div class="current-plan">Aktuell: <strong>${this._esc(current)}</strong></div>` : ""}
           <input class="inp" id="dialog-search" placeholder="Rezept wählen…" value="${this._esc(this._dialogSearch)}">
@@ -827,7 +842,7 @@ PanelEssensplaner._CSS = `
   .overlay {
     position: fixed; inset: 0; background: rgba(0,0,0,.45);
     display: flex; align-items: center; justify-content: center;
-    z-index: 100; padding: 16px;
+    z-index: 300; padding: 16px;
   }
   .dialog {
     background: var(--card-background-color, #fff);
@@ -843,9 +858,11 @@ PanelEssensplaner._CSS = `
   .pick-item {
     display: flex; align-items: center; gap: 10px; padding: 10px 12px;
     border: 1px solid var(--divider-color, #eee); border-radius: 8px;
-    background: none; cursor: pointer; font: inherit; text-align: left; width: 100%;
+    background: var(--card-background-color, #fff); cursor: pointer;
+    font: inherit; text-align: left; width: 100%;
   }
   .pick-item:hover { border-color: var(--primary-color); background: var(--secondary-background-color); }
+  .pick-icon { flex-shrink: 0; width: 1.25rem; text-align: center; }
   .toast {
     position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
     padding: 12px 20px; border-radius: 10px; z-index: 200;
