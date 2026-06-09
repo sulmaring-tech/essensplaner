@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 from homeassistant.components.todo import DOMAIN as TODO_DOMAIN
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 
-from .const import LOGGER, OPTION_DEFAULT_SHOPPING_LIST_ID
+from .const import DOMAIN, LOGGER, OPTION_DEFAULT_SHOPPING_LIST_ID
 from .models import Ingredient, Recipe
 
 if TYPE_CHECKING:
@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
 TARGET_ESSENSPLANER = "essensplaner"
 TARGET_BRING = "bring"
+BRING_DOMAIN = "bring"
 BRING_PLATFORM = "bring"
 
 
@@ -80,7 +81,7 @@ def _essensplaner_targets(
         entity_id = None
         if unique_id:
             entity_id = entity_registry.async_get_entity_id(
-                TODO_DOMAIN, entry.domain, f"{unique_id}_{shopping_list.id}"
+                TODO_DOMAIN, DOMAIN, f"{unique_id}_{shopping_list.id}"
             )
         result.append(
             {
@@ -93,67 +94,143 @@ def _essensplaner_targets(
     return result
 
 
-def _bring_display_name(hass: HomeAssistant, entity_id: str, fallback: str) -> str:
+def _is_bring_todo_entity(hass: HomeAssistant, entity_entry: er.RegistryEntry) -> bool:
+    """Return whether a registry entry is a Bring todo list."""
+    if entity_entry.domain != TODO_DOMAIN:
+        return False
+    if entity_entry.platform == BRING_PLATFORM:
+        return True
+    if not entity_entry.config_entry_id:
+        return False
+    config_entry = hass.config_entries.async_get_entry(entity_entry.config_entry_id)
+    return config_entry is not None and config_entry.domain == BRING_DOMAIN
+
+
+def _bring_entity_display_name(
+    hass: HomeAssistant,
+    entity_entry: er.RegistryEntry,
+    device_registry: dr.DeviceRegistry,
+) -> str:
     """Return a user-facing name for a Bring todo entity."""
-    state = hass.states.get(entity_id)
-    if state and state.name:
-        return state.name
-    return fallback or entity_id
+    if entity_entry.device_id:
+        device = device_registry.async_get(entity_entry.device_id)
+        if device is not None:
+            if device.name_by_user:
+                return device.name_by_user
+            if device.name:
+                return device.name
+
+    state = hass.states.get(entity_entry.entity_id)
+    if state is not None:
+        if state.name:
+            return state.name
+        friendly_name = state.attributes.get("friendly_name")
+        if friendly_name:
+            return str(friendly_name)
+
+    return (
+        entity_entry.name
+        or entity_entry.original_name
+        or entity_entry.entity_id
+    )
 
 
-def _bring_registry_entries(entity_registry: er.EntityRegistry) -> list:
-    """Return Bring todo entities from the entity registry."""
-    entries_for_platform = getattr(er, "async_entries_for_platform", None)
-    if callable(entries_for_platform):
-        return list(entries_for_platform(entity_registry, BRING_PLATFORM))
-    return [
-        entry
-        for entry in entity_registry.entities.values()
-        if entry.platform == BRING_PLATFORM
-    ]
-
-
-def _todo_entity_ids(hass: HomeAssistant) -> list[str]:
-    """Return all todo entity ids."""
-    return hass.states.entity_ids(TODO_DOMAIN)
+def _append_bring_target(
+    hass: HomeAssistant,
+    entity_id: str,
+    name: str,
+    *,
+    result: list[dict[str, Any]],
+    seen: set[str],
+) -> None:
+    """Append a Bring target if not already present."""
+    if entity_id in seen:
+        return
+    seen.add(entity_id)
+    result.append(
+        {
+            "id": encode_target(TARGET_BRING, entity_id),
+            "name": name,
+            "entity_id": entity_id,
+            "source": TARGET_BRING,
+        }
+    )
 
 
 def _bring_targets(hass: HomeAssistant) -> list[dict[str, Any]]:
     """Return Bring! todo lists for the panel."""
     entity_registry = er.async_get(hass)
+    device_registry = dr.async_get(hass)
     result: list[dict[str, Any]] = []
     seen: set[str] = set()
 
-    for entity_entry in _bring_registry_entries(entity_registry):
-        if entity_entry.domain != TODO_DOMAIN:
+    entries_for_domain = getattr(er, "async_entries_for_domain", None)
+    if callable(entries_for_domain):
+        todo_entries = entries_for_domain(entity_registry, TODO_DOMAIN)
+    else:
+        todo_entries = [
+            entry
+            for entry in entity_registry.entities.values()
+            if entry.domain == TODO_DOMAIN
+        ]
+
+    for entity_entry in todo_entries:
+        if not _is_bring_todo_entity(hass, entity_entry):
             continue
-        seen.add(entity_entry.entity_id)
-        fallback = entity_entry.name or entity_entry.original_name or entity_entry.entity_id
-        result.append(
-            {
-                "id": encode_target(TARGET_BRING, entity_entry.entity_id),
-                "name": _bring_display_name(hass, entity_entry.entity_id, fallback),
-                "entity_id": entity_entry.entity_id,
-                "source": TARGET_BRING,
-            }
+        _append_bring_target(
+            hass,
+            entity_entry.entity_id,
+            _bring_entity_display_name(hass, entity_entry, device_registry),
+            result=result,
+            seen=seen,
         )
 
-    for entity_id in _todo_entity_ids(hass):
+    entries_for_device = getattr(dr, "async_entries_for_device", None)
+    for device in device_registry.devices.values():
+        if not any(identifier[0] == BRING_DOMAIN for identifier in device.identifiers):
+            continue
+        device_name = device.name_by_user or device.name
+        if callable(entries_for_device):
+            device_entities = entries_for_device(device_registry, device.id)
+        else:
+            device_entities = [
+                entry
+                for entry in entity_registry.entities.values()
+                if entry.device_id == device.id
+            ]
+        for entity_entry in device_entities:
+            if entity_entry.domain != TODO_DOMAIN:
+                continue
+            _append_bring_target(
+                hass,
+                entity_entry.entity_id,
+                device_name
+                or _bring_entity_display_name(hass, entity_entry, device_registry),
+                result=result,
+                seen=seen,
+            )
+
+    for entity_id in hass.states.entity_ids(TODO_DOMAIN):
         if entity_id in seen:
             continue
         entity_entry = entity_registry.async_get(entity_id)
-        if entity_entry is None or entity_entry.platform != BRING_PLATFORM:
+        if entity_entry is None or not _is_bring_todo_entity(hass, entity_entry):
             continue
-        fallback = entity_entry.name or entity_entry.original_name or entity_id
-        result.append(
-            {
-                "id": encode_target(TARGET_BRING, entity_id),
-                "name": _bring_display_name(hass, entity_id, fallback),
-                "entity_id": entity_id,
-                "source": TARGET_BRING,
-            }
+        _append_bring_target(
+            hass,
+            entity_id,
+            _bring_entity_display_name(hass, entity_entry, device_registry),
+            result=result,
+            seen=seen,
         )
 
+    if not result and hass.config_entries.async_entries(BRING_DOMAIN):
+        LOGGER.info(
+            "Bring integration is configured but no todo list entities were found. "
+            "Enable Bring todo entities under Settings → Entities."
+        )
+    else:
+        LOGGER.debug("Found %d Bring shopping list(s)", len(result))
     return sorted(result, key=lambda item: item["name"].casefold())
 
 
@@ -220,11 +297,7 @@ def is_valid_target(
     if source == TARGET_BRING:
         entity_registry = er.async_get(hass)
         entity = entity_registry.async_get(target_id)
-        return (
-            entity is not None
-            and entity.domain == TODO_DOMAIN
-            and entity.platform == BRING_PLATFORM
-        )
+        return entity is not None and _is_bring_todo_entity(hass, entity)
 
     return False
 
