@@ -71,4 +71,5 @@ SERVICE_REMOVE_RECIPE_FROM_COOKBOOK = "remove_recipe_from_cookbook"
 SERVICE_CLEAR_MEALPLAN = "clear_mealplan"
 
 PANEL_URL_PATH = "essensplaner"
-PANEL_JS_URL = "/essensplaner/panel.js"
+PANEL_STATIC_PATH = "/essensplaner_static"
+PANEL_JS_URL = "/essensplaner_static/panel.js"

@@ -24,6 +24,8 @@ class PanelEssensplaner extends HTMLElement {
     this._dialogSearch = "";
     this._toastTimer = null;
     this._searchTimer = null;
+    this._cachedEntries = [];
+    this._entriesLoading = false;
     this._onClick = this._handleClick.bind(this);
     this._onInput = this._handleInput.bind(this);
     this._onChange = this._handleChange.bind(this);
@@ -46,12 +48,15 @@ class PanelEssensplaner extends HTMLElement {
   set hass(hass) {
     const hadEntry = !!this._entryId;
     this._hass = hass;
+    this._mergeEntries(this._panel?.config?.entries);
     const entries = this._entries();
     if (!this._entryId && entries.length) {
       this._entryId = entries[0].entry_id;
     }
     if (this._entryId && !hadEntry) {
       this._load();
+    } else if (!entries.length && !this._entriesLoading) {
+      this._fetchEntries().then(() => this._paint());
     } else {
       this._paint();
     }
@@ -59,15 +64,53 @@ class PanelEssensplaner extends HTMLElement {
 
   set narrow(v) { this._narrow = v; }
   set route(v) { this._route = v; }
-  set panel(v) { this._panel = v; }
+  set panel(v) {
+    this._panel = v;
+    this._mergeEntries(v?.config?.entries);
+    if (!this._entryId && this._entries().length) {
+      this._entryId = this._entries()[0].entry_id;
+      if (this._hass) this._load();
+    }
+  }
 
   /* ── data ─────────────────────────────────────────── */
 
+  _mergeEntries(list) {
+    if (!list?.length) return;
+    const byId = new Map(this._cachedEntries.map((e) => [e.entry_id, e]));
+    for (const e of list) {
+      const id = e.entry_id || e.entryId;
+      if (id) byId.set(id, { entry_id: id, title: e.title || id });
+    }
+    this._cachedEntries = [...byId.values()];
+  }
+
   _entries() {
+    if (this._cachedEntries.length) return this._cachedEntries;
     const raw = this._hass?.configEntries;
     if (!raw) return [];
     const list = Array.isArray(raw) ? raw : Object.values(raw);
-    return list.filter((e) => e.domain === "essensplaner");
+    return list
+      .filter((e) => e.domain === "essensplaner")
+      .map((e) => ({ entry_id: e.entry_id || e.entryId, title: e.title || e.entry_id }));
+  }
+
+  async _fetchEntries() {
+    if (!this._hass || this._entriesLoading) return;
+    this._entriesLoading = true;
+    try {
+      const res = await this._hass.callWS({ type: "essensplaner/config_entries" });
+      this._mergeEntries(res);
+      if (!this._entryId && this._cachedEntries.length) {
+        this._entryId = this._cachedEntries[0].entry_id;
+        await this._load();
+        return;
+      }
+    } catch (e) {
+      console.warn("Essensplaner: config entries via WS failed", e);
+    } finally {
+      this._entriesLoading = false;
+    }
   }
 
   async _svc(service, data = {}) {
