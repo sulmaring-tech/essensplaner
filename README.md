@@ -49,7 +49,12 @@ Alle Daten werden lokal in Home Assistant gespeichert (`.storage/essensplaner.*`
 | `essensplaner.set_mealplan` | Gericht/Notiz planen |
 | `essensplaner.set_random_mealplan` | Zufälliges Rezept planen |
 | `essensplaner.add_recipe_to_shopping_list` | Zutaten zur Einkaufsliste |
-| `essensplaner.get_cookbooks` | Kochbücher auflisten |
+| `essensplaner.update_recipe` | Bestehendes Rezept ändern |
+| `essensplaner.get_cookbooks` | Kochbücher inkl. Rezepten auflisten |
+| `essensplaner.create_cookbook` | Kochbuch anlegen (nur Service) |
+| `essensplaner.delete_cookbook` | Kochbuch löschen |
+| `essensplaner.add_recipe_to_cookbook` | Rezept einem Kochbuch zuordnen |
+| `essensplaner.remove_recipe_from_cookbook` | Rezept aus Kochbuch entfernen |
 | `essensplaner.get_shopping_list_items` | Einkaufsliste (auf To-do-Entität) |
 
 ### Beispiel: Rezept importieren
@@ -100,13 +105,31 @@ Nach der Einrichtung werden automatisch erstellt:
 - **To-do**: Einkaufsliste (weitere Listen über Daten/API erweiterbar)
 - **Sensoren**: Rezepte, Kategorien, Tags, Werkzeuge, Kochbücher
 
+## Typischer Workflow (ohne eigene Web-UI)
+
+Essensplaner hat **keine Mealie-ähnliche Browser-Oberfläche** – alles läuft über Home Assistant:
+
+| Aufgabe | Wo |
+|---------|-----|
+| Rezepte importieren | Aktion `essensplaner.import_recipe` oder Skript in [`examples/import_startrezepte.yaml`](examples/import_startrezepte.yaml) |
+| Essensplan ansehen | Kalender-Karten (`calendar.*_mittagessen`, `*_abendessen`, …) |
+| Einkaufen | Native To-do-Liste (`todo.*`) |
+| Kochbücher | Nur per Service `essensplaner.get_cookbooks` (kein eigenes UI) |
+| Dashboard | Vorlage: [`examples/dashboard_essensplaner.yaml`](examples/dashboard_essensplaner.yaml) |
+
+### Startrezepte importieren
+
+1. `examples/import_startrezepte.yaml` in deine HA-Konfiguration einbinden
+2. `CONFIG_ENTRY_ID` durch deine Essensplaner-ID ersetzen
+3. Skript `script.essensplaner_startrezepte_importieren` ausführen
+
 ## Abgrenzung zu Mealie
 
 Essensplaner ist eine **eingebettete Lösung** ohne Web-UI wie Mealie. Verwaltung erfolgt über:
 
 - Home Assistant To-do-Listen (Einkauf)
 - Kalender-Entitäten (Essensplan)
-- Developer Tools → Aktionen (Rezepte, Planung)
+- Entwicklerwerkzeuge → Aktionen (Rezepte, Planung)
 - Automatisierungen und Dashboards
 
 Für eine vollständige Mealie-Web-Oberfläche empfehlen wir die offizielle [Mealie-Integration](https://www.home-assistant.io/integrations/mealie/) mit einem Mealie-Server.

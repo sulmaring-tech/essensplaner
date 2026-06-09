@@ -1,0 +1,37 @@
+# Startrezepte per Skript importieren
+#
+# 1. config_entry_id ermitteln:
+#    Einstellungen → Geräte & Dienste → Essensplaner → ⋮ → Systemoptionen
+#    oder Entwicklerwerkzeuge → Aktionen → essensplaner.get_recipes (Dropdown wählt die ID)
+# 2. Unten CONFIG_ENTRY_ID ersetzen
+# 3. Als packages/essensplaner_import.yaml oder in scripts.yaml einbinden
+# 4. Skript ausführen: Entwicklerwerkzeuge → Aktionen → script.essensplaner_startrezepte_importieren
+
+script:
+  essensplaner_startrezepte_importieren:
+    alias: Essensplaner – Startrezepte importieren
+    mode: single
+    icon: mdi:food
+    sequence:
+      - variables:
+          config_entry_id: CONFIG_ENTRY_ID
+      - action: essensplaner.import_recipe
+        data:
+          config_entry_id: "{{ config_entry_id }}"
+          url: "https://www.chefkoch.de/rezept/256494/Spaghetti-Carbonara.html"
+      - action: essensplaner.import_recipe
+        data:
+          config_entry_id: "{{ config_entry_id }}"
+          url: "https://www.chefkoch.de/rezept/119835/Linsensuppe.html"
+      - action: essensplaner.import_recipe
+        data:
+          config_entry_id: "{{ config_entry_id }}"
+          url: "https://www.chefkoch.de/rezept/121374/Kartoffelsuppe.html"
+      - action: essensplaner.import_recipe
+        data:
+          config_entry_id: "{{ config_entry_id }}"
+          url: "https://www.allrecipes.com/recipe/10813/best-chocolate-chip-cookies/"
+      - action: notify.persistent_notification
+        data:
+          title: Essensplaner
+          message: Startrezepte wurden importiert. Sensor und Kalender aktualisieren sich automatisch.

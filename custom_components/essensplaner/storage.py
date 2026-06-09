@@ -289,6 +289,47 @@ class EssensplanerStore:
             await self._async_save()
             return cookbook
 
+    async def async_delete_cookbook(self, cookbook_id: str) -> bool:
+        """Delete a cookbook."""
+        async with self._lock:
+            if cookbook_id not in self._data.cookbooks:
+                return False
+            del self._data.cookbooks[cookbook_id]
+            await self._async_save()
+            return True
+
+    async def async_add_recipe_to_cookbook(
+        self, cookbook_id: str, recipe_id: str
+    ) -> Cookbook:
+        """Add a recipe to a cookbook."""
+        recipe = self.find_recipe(recipe_id)
+        if not recipe:
+            raise ValueError(f"Recipe not found: {recipe_id}")
+        async with self._lock:
+            cookbook = self._data.cookbooks.get(cookbook_id)
+            if not cookbook:
+                raise ValueError(f"Cookbook not found: {cookbook_id}")
+            if recipe.id not in cookbook.recipe_ids:
+                cookbook.recipe_ids.append(recipe.id)
+            await self._async_save()
+            return cookbook
+
+    async def async_remove_recipe_from_cookbook(
+        self, cookbook_id: str, recipe_id: str
+    ) -> Cookbook:
+        """Remove a recipe from a cookbook."""
+        recipe = self.find_recipe(recipe_id)
+        if not recipe:
+            raise ValueError(f"Recipe not found: {recipe_id}")
+        async with self._lock:
+            cookbook = self._data.cookbooks.get(cookbook_id)
+            if not cookbook:
+                raise ValueError(f"Cookbook not found: {cookbook_id}")
+            if recipe.id in cookbook.recipe_ids:
+                cookbook.recipe_ids.remove(recipe.id)
+            await self._async_save()
+            return cookbook
+
     def get_statistics(self) -> Statistics:
         """Return computed statistics."""
         return self._data.compute_statistics()

@@ -41,14 +41,19 @@ from .const import (
     SERVICE_ADD_RECIPE_TO_SHOPPING_LIST,
     SERVICE_CREATE_RECIPE,
     SERVICE_DELETE_RECIPE,
+    SERVICE_ADD_RECIPE_TO_COOKBOOK,
+    SERVICE_CREATE_COOKBOOK,
+    SERVICE_DELETE_COOKBOOK,
     SERVICE_GET_COOKBOOKS,
     SERVICE_GET_MEALPLAN,
     SERVICE_GET_RECIPE,
     SERVICE_GET_RECIPES,
     SERVICE_GET_SHOPPING_LIST_ITEMS,
     SERVICE_IMPORT_RECIPE,
+    SERVICE_REMOVE_RECIPE_FROM_COOKBOOK,
     SERVICE_SET_MEALPLAN,
     SERVICE_SET_RANDOM_MEALPLAN,
+    SERVICE_UPDATE_RECIPE,
 )
 from .coordinator import EssensplanerConfigEntry
 from .models import Ingredient, Recipe
@@ -144,6 +149,50 @@ SERVICE_ADD_RECIPE_TO_SHOPPING_LIST_SCHEMA = vol.Schema(
 SERVICE_GET_COOKBOOKS_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_CONFIG_ENTRY_ID): str,
+    }
+)
+
+SERVICE_UPDATE_RECIPE_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_CONFIG_ENTRY_ID): str,
+        vol.Required(ATTR_RECIPE_ID): str,
+        vol.Optional(ATTR_NAME): str,
+        vol.Optional(ATTR_DESCRIPTION): str,
+        vol.Optional(ATTR_INGREDIENTS): [str],
+        vol.Optional(ATTR_INSTRUCTIONS): [str],
+        vol.Optional(ATTR_TAGS): [str],
+        vol.Optional(ATTR_CATEGORIES): [str],
+    }
+)
+
+SERVICE_CREATE_COOKBOOK_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_CONFIG_ENTRY_ID): str,
+        vol.Required(ATTR_NAME): str,
+        vol.Optional(ATTR_DESCRIPTION): str,
+    }
+)
+
+SERVICE_DELETE_COOKBOOK_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_CONFIG_ENTRY_ID): str,
+        vol.Required(ATTR_COOKBOOK_ID): str,
+    }
+)
+
+SERVICE_ADD_RECIPE_TO_COOKBOOK_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_CONFIG_ENTRY_ID): str,
+        vol.Required(ATTR_COOKBOOK_ID): str,
+        vol.Required(ATTR_RECIPE_ID): str,
+    }
+)
+
+SERVICE_REMOVE_RECIPE_FROM_COOKBOOK_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_CONFIG_ENTRY_ID): str,
+        vol.Required(ATTR_COOKBOOK_ID): str,
+        vol.Required(ATTR_RECIPE_ID): str,
     }
 )
 
@@ -304,8 +353,98 @@ async def _async_add_recipe_to_shopping_list(call: ServiceCall) -> ServiceRespon
 async def _async_get_cookbooks(call: ServiceCall) -> ServiceResponse:
     """Get all cookbooks."""
     entry = _get_entry(call)
-    cookbooks = entry.runtime_data.store.data.cookbooks.values()
-    return {"cookbooks": [c.to_dict() for c in cookbooks]}
+    store = entry.runtime_data.store
+    cookbooks = []
+    for cookbook in store.data.cookbooks.values():
+        data = cookbook.to_dict()
+        data["recipes"] = [
+            store.data.recipes[rid].to_dict()
+            for rid in cookbook.recipe_ids
+            if rid in store.data.recipes
+        ]
+        cookbooks.append(data)
+    return {"cookbooks": cookbooks}
+
+
+async def _async_update_recipe(call: ServiceCall) -> ServiceResponse:
+    """Update an existing recipe."""
+    entry = _get_entry(call)
+    store = entry.runtime_data.store
+    recipe = store.find_recipe(call.data[ATTR_RECIPE_ID])
+    if not recipe:
+        raise ServiceValidationError(f"Recipe not found: {call.data[ATTR_RECIPE_ID]}")
+
+    if ATTR_NAME in call.data:
+        recipe.name = call.data[ATTR_NAME]
+    if ATTR_DESCRIPTION in call.data:
+        recipe.description = call.data[ATTR_DESCRIPTION]
+    if ATTR_INGREDIENTS in call.data:
+        recipe.ingredients = [Ingredient(name=i) for i in call.data[ATTR_INGREDIENTS]]
+    if ATTR_INSTRUCTIONS in call.data:
+        recipe.instructions = call.data[ATTR_INSTRUCTIONS]
+    if ATTR_TAGS in call.data:
+        recipe.tags = call.data[ATTR_TAGS]
+    if ATTR_CATEGORIES in call.data:
+        recipe.categories = call.data[ATTR_CATEGORIES]
+
+    recipe = await store.async_add_recipe(recipe)
+    await _async_refresh_all(entry)
+    return {"recipe": recipe.to_dict()}
+
+
+async def _async_create_cookbook(call: ServiceCall) -> ServiceResponse:
+    """Create a cookbook."""
+    entry = _get_entry(call)
+    cookbook = await entry.runtime_data.store.async_create_cookbook(
+        call.data[ATTR_NAME],
+        call.data.get(ATTR_DESCRIPTION),
+    )
+    await _async_refresh_all(entry)
+    return {"cookbook": cookbook.to_dict()}
+
+
+async def _async_delete_cookbook(call: ServiceCall) -> ServiceResponse:
+    """Delete a cookbook."""
+    entry = _get_entry(call)
+    deleted = await entry.runtime_data.store.async_delete_cookbook(
+        call.data[ATTR_COOKBOOK_ID]
+    )
+    if not deleted:
+        raise ServiceValidationError(
+            f"Cookbook not found: {call.data[ATTR_COOKBOOK_ID]}"
+        )
+    await _async_refresh_all(entry)
+    return None
+
+
+async def _async_add_recipe_to_cookbook(call: ServiceCall) -> ServiceResponse:
+    """Add recipe to cookbook."""
+    entry = _get_entry(call)
+    store = entry.runtime_data.store
+    try:
+        cookbook = await store.async_add_recipe_to_cookbook(
+            call.data[ATTR_COOKBOOK_ID],
+            call.data[ATTR_RECIPE_ID],
+        )
+    except ValueError as err:
+        raise ServiceValidationError(str(err)) from err
+    await _async_refresh_all(entry)
+    return {"cookbook": cookbook.to_dict()}
+
+
+async def _async_remove_recipe_from_cookbook(call: ServiceCall) -> ServiceResponse:
+    """Remove recipe from cookbook."""
+    entry = _get_entry(call)
+    store = entry.runtime_data.store
+    try:
+        cookbook = await store.async_remove_recipe_from_cookbook(
+            call.data[ATTR_COOKBOOK_ID],
+            call.data[ATTR_RECIPE_ID],
+        )
+    except ValueError as err:
+        raise ServiceValidationError(str(err)) from err
+    await _async_refresh_all(entry)
+    return {"cookbook": cookbook.to_dict()}
 
 
 async def _async_refresh_all(entry: EssensplanerConfigEntry) -> None:
@@ -385,6 +524,41 @@ def async_setup_services(hass: HomeAssistant) -> None:
         SERVICE_GET_COOKBOOKS,
         _async_get_cookbooks,
         schema=SERVICE_GET_COOKBOOKS_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_UPDATE_RECIPE,
+        _async_update_recipe,
+        schema=SERVICE_UPDATE_RECIPE_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_CREATE_COOKBOOK,
+        _async_create_cookbook,
+        schema=SERVICE_CREATE_COOKBOOK_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_DELETE_COOKBOOK,
+        _async_delete_cookbook,
+        schema=SERVICE_DELETE_COOKBOOK_SCHEMA,
+        supports_response=SupportsResponse.NONE,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_ADD_RECIPE_TO_COOKBOOK,
+        _async_add_recipe_to_cookbook,
+        schema=SERVICE_ADD_RECIPE_TO_COOKBOOK_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_REMOVE_RECIPE_FROM_COOKBOOK,
+        _async_remove_recipe_from_cookbook,
+        schema=SERVICE_REMOVE_RECIPE_FROM_COOKBOOK_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
     service.async_register_platform_entity_service(

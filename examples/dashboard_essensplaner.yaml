@@ -1,0 +1,64 @@
+# Lovelace-Dashboard – Essensplaner ohne eigene Web-UI
+#
+# Entity-IDs anpassen (Beispiel aus deiner Installation):
+#   calendar.haushalt_mittagessen, calendar.haushalt_abendessen
+#   sensor.haushalt_rezepte
+#   todo.clangwelt_einkaufe
+#
+# Als neue Ansicht einfügen: Dashboard bearbeiten → Rohe Konfiguration bearbeiten
+
+title: Essensplan
+views:
+  - title: Essensplan
+    path: essensplan
+    icon: mdi:food
+    cards:
+      - type: vertical-stack
+        cards:
+          - type: markdown
+            content: |
+              ## Essensplaner
+              Rezepte importieren und planen über **Entwicklerwerkzeuge → Aktionen**.
+              Kochbücher nur per Service `essensplaner.get_cookbooks` (kein eigenes UI).
+
+          - type: glance
+            title: Übersicht
+            entities:
+              - entity: sensor.haushalt_rezepte
+                name: Rezepte
+              - entity: sensor.haushalt_kochbuecher
+                name: Kochbücher
+
+          - type: horizontal-stack
+            cards:
+              - type: calendar
+                entity: calendar.haushalt_mittagessen
+                initial_view: listWeek
+              - type: calendar
+                entity: calendar.haushalt_abendessen
+                initial_view: listWeek
+
+          - type: todo-list
+            entity: todo.clangwelt_einkaufe
+            title: Einkaufsliste
+
+          - type: entities
+            title: Schnellaktionen (manuell ausführen)
+            show_header_toggle: false
+            entities:
+              - type: button
+                name: Startrezepte importieren
+                icon: mdi:download
+                tap_action:
+                  action: call-service
+                  service: script.essensplaner_startrezepte_importieren
+              - type: button
+                name: Zufälliges Abendessen heute
+                icon: mdi:dice-multiple
+                tap_action:
+                  action: call-service
+                  service: essensplaner.set_random_mealplan
+                  data:
+                    config_entry_id: CONFIG_ENTRY_ID
+                    date: "{{ now().date() }}"
+                    entry_type: dinner

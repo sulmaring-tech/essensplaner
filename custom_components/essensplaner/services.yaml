@@ -171,6 +171,36 @@ add_recipe_to_shopping_list:
       selector:
         text:
 
+update_recipe:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: essensplaner
+    recipe_id:
+      required: true
+      selector:
+        text:
+    name:
+      selector:
+        text:
+    description:
+      selector:
+        text:
+    ingredients:
+      selector:
+        text:
+    instructions:
+      selector:
+        text:
+    tags:
+      selector:
+        text:
+    categories:
+      selector:
+        text:
+
 get_cookbooks:
   fields:
     config_entry_id:
@@ -178,6 +208,65 @@ get_cookbooks:
       selector:
         config_entry:
           integration: essensplaner
+
+create_cookbook:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: essensplaner
+    name:
+      required: true
+      selector:
+        text:
+    description:
+      selector:
+        text:
+
+delete_cookbook:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: essensplaner
+    cookbook_id:
+      required: true
+      selector:
+        text:
+
+add_recipe_to_cookbook:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: essensplaner
+    cookbook_id:
+      required: true
+      selector:
+        text:
+    recipe_id:
+      required: true
+      selector:
+        text:
+
+remove_recipe_from_cookbook:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: essensplaner
+    cookbook_id:
+      required: true
+      selector:
+        text:
+    recipe_id:
+      required: true
+      selector:
+        text:
 
 get_shopping_list_items:
   target:

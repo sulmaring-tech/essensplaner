@@ -71,9 +71,29 @@
       "name": "Zutaten zur Einkaufsliste",
       "description": "Fügt alle Zutaten eines Rezepts zur Einkaufsliste hinzu."
     },
+    "update_recipe": {
+      "name": "Rezept aktualisieren",
+      "description": "Aktualisiert ein bestehendes Rezept."
+    },
     "get_cookbooks": {
       "name": "Kochbücher abrufen",
-      "description": "Gibt alle Kochbücher zurück."
+      "description": "Gibt alle Kochbücher inklusive Rezepten zurück."
+    },
+    "create_cookbook": {
+      "name": "Kochbuch erstellen",
+      "description": "Legt ein neues Kochbuch an (nur per Service, kein UI)."
+    },
+    "delete_cookbook": {
+      "name": "Kochbuch löschen",
+      "description": "Löscht ein Kochbuch."
+    },
+    "add_recipe_to_cookbook": {
+      "name": "Rezept zum Kochbuch",
+      "description": "Fügt ein Rezept einem Kochbuch hinzu."
+    },
+    "remove_recipe_from_cookbook": {
+      "name": "Rezept aus Kochbuch",
+      "description": "Entfernt ein Rezept aus einem Kochbuch."
     },
     "get_shopping_list_items": {
       "name": "Einkaufslisten-Items abrufen",
