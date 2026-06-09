@@ -716,20 +716,23 @@ class PanelEssensplaner extends HTMLElement {
     const { days, monday, sunday } = this._weekRange();
     const weekLabel = `${monday.toLocaleDateString("de-DE", { day: "2-digit", month: "short" })} – ${sunday.toLocaleDateString("de-DE", { day: "2-digit", month: "short", year: "numeric" })}`;
 
-    const head = MEALS.map((m) => `<th><ha-icon icon="${m.icon}"></ha-icon> ${m.label}</th>`).join("");
-    const rows = days.map((day) => {
+    const head = days.map((day) => {
       const { wd, dm, today } = this._fmtDay(day);
-      const cells = MEALS.map((m) => {
+      return `<th class="day-head ${today ? "today-col-head" : ""}"><strong>${wd}</strong><br>${dm}</th>`;
+    }).join("");
+    const rows = MEALS.map((m) => {
+      const cells = days.map((day) => {
+        const { today } = this._fmtDay(day);
         const p = this._plan(day, m.id);
         const name = this._planName(p);
         return `
-          <td>
-            <button type="button" class="plan-cell ${name ? "filled" : ""} ${today ? "today-col" : ""}" data-a="plan-cell" data-date="${day}" data-type="${m.id}">
+          <td class="${today ? "today-col" : ""}">
+            <button type="button" class="plan-cell ${name ? "filled" : ""}" data-a="plan-cell" data-date="${day}" data-type="${m.id}">
               ${name ? `<span class="plan-name">${this._esc(name)}</span>` : `<span class="plan-empty">+ Zuweisen</span>`}
             </button>
           </td>`;
       }).join("");
-      return `<tr class="${today ? "today-row" : ""}"><td class="day-label"><strong>${wd}</strong><br>${dm}</td>${cells}</tr>`;
+      return `<tr><td class="meal-label"><ha-icon icon="${m.icon}"></ha-icon> ${m.label}</td>${cells}</tr>`;
     }).join("");
 
     return `
@@ -742,7 +745,7 @@ class PanelEssensplaner extends HTMLElement {
       </div>
       <div class="plan-wrap">
         <table class="plan-grid">
-          <thead><tr><th></th>${head}</tr></thead>
+          <thead><tr><th class="corner"></th>${head}</tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>`;
@@ -952,17 +955,25 @@ PanelEssensplaner._CSS = `
     background: var(--secondary-background-color, #f5f5f5);
     text-align: center;
   }
-  .plan-grid th ha-icon { vertical-align: middle; margin-right: 4px; --mdc-icon-size: 18px; }
-  .day-label { padding: 12px 14px !important; font-size: 0.85rem; white-space: nowrap; background: var(--secondary-background-color, #fafafa); }
-  .today-row .day-label { background: color-mix(in srgb, var(--primary-color) 12%, transparent); }
+  .plan-grid th.corner { width: 120px; min-width: 120px; background: var(--secondary-background-color, #f5f5f5); }
+  .day-head { min-width: 88px; line-height: 1.35; }
+  .today-col-head { background: color-mix(in srgb, var(--primary-color) 12%, var(--secondary-background-color, #f5f5f5)); }
+  .meal-label {
+    padding: 12px 14px !important; font-size: 0.85rem; font-weight: 500;
+    white-space: nowrap; background: var(--secondary-background-color, #fafafa);
+    vertical-align: middle;
+  }
+  .meal-label ha-icon { vertical-align: middle; margin-right: 6px; --mdc-icon-size: 18px; color: var(--primary-color); }
+  .today-col { background: color-mix(in srgb, var(--primary-color) 6%, var(--card-background-color, #fff)); }
   .plan-cell {
     width: 100%; min-height: 72px; padding: 12px; border: none; background: transparent;
     cursor: pointer; text-align: left; font: inherit; color: inherit;
     transition: background .12s;
   }
   .plan-cell:hover { background: var(--secondary-background-color, #f5f5f5); }
+  .today-col .plan-cell:hover { background: color-mix(in srgb, var(--primary-color) 10%, var(--secondary-background-color, #f5f5f5)); }
   .plan-cell.filled { background: color-mix(in srgb, var(--primary-color) 8%, var(--card-background-color, #fff)); }
-  .plan-cell.today-col.filled { background: color-mix(in srgb, var(--primary-color) 14%, var(--card-background-color, #fff)); }
+  .today-col .plan-cell.filled { background: color-mix(in srgb, var(--primary-color) 14%, var(--card-background-color, #fff)); }
   .plan-name { font-size: 0.88rem; font-weight: 500; line-height: 1.35; display: block; }
   .plan-empty { font-size: 0.82rem; color: var(--secondary-text-color); }
   .overlay {
