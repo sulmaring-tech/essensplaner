@@ -23,4 +23,6 @@ class EssensplanerEntity(CoordinatorEntity[EssensplanerDataUpdateCoordinator]):
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, unique_id)},
             name=coordinator.config_entry.data.get("household_name", "Essensplaner"),
+            manufacturer="Essensplaner",
+            model="Rezept- & Essensplaner",
         )

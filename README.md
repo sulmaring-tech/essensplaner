@@ -1,6 +1,10 @@
 # Essensplaner – Home Assistant Integration
 
+![Essensplaner Logo](custom_components/essensplaner/brand/logo.png)
+
 Ein **lokaler Rezeptmanager, Essensplaner und Einkaufslisten-Plugin** für Home Assistant – inspiriert von [Mealie](https://mealie.io), aber ohne separaten Server.
+
+Das Plugin-Logo liegt unter `custom_components/essensplaner/brand/` (`icon.png` und `logo.png`) und wird von Home Assistant ab 2026.3 automatisch in der Integrations-UI angezeigt.
 
 ## Funktionen
 
