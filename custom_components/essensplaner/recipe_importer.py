@@ -15,6 +15,15 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
 
+def _safe_scrape(callable_fn, default=None):
+    """Return scraper field value, ignoring missing optional Schema.org data."""
+    try:
+        value = callable_fn()
+        return default if value is None else value
+    except Exception:
+        return default
+
+
 def _parse_ingredient(text: str) -> Ingredient:
     """Parse ingredient string into structured parts."""
     text = text.strip()
@@ -35,31 +44,35 @@ def _parse_ingredient(text: str) -> Ingredient:
 def _scrape_recipe(url: str, html: str) -> Recipe:
     """Scrape recipe from HTML."""
     scraper: AbstractScraper = scrape_html(html, org_url=url)
-    name = scraper.title() or "Unbenanntes Rezept"
-    ingredients_raw = scraper.ingredients() or []
-    instructions_raw = scraper.instructions_list() or []
-    if not instructions_raw and scraper.instructions():
-        instructions_raw = [
-            s.strip() for s in scraper.instructions().split("\n") if s.strip()
-        ]
+    name = _safe_scrape(scraper.title) or "Unbenanntes Rezept"
+    ingredients_raw = _safe_scrape(scraper.ingredients, []) or []
+    instructions_raw = _safe_scrape(scraper.instructions_list, []) or []
+    if not instructions_raw:
+        instructions_text = _safe_scrape(scraper.instructions)
+        if instructions_text:
+            instructions_raw = [
+                s.strip() for s in instructions_text.split("\n") if s.strip()
+            ]
 
     ingredients = [_parse_ingredient(i) for i in ingredients_raw]
     recipe_id = generate_id()
     slug = unique_slug(name, set())
+    yields_value = _safe_scrape(scraper.yields)
+    category = _safe_scrape(scraper.category)
 
     return Recipe(
         id=recipe_id,
         slug=slug,
         name=name,
-        description=scraper.description(),
+        description=_safe_scrape(scraper.description),
         ingredients=ingredients,
         instructions=instructions_raw,
-        image_url=scraper.image(),
-        servings=str(scraper.yields()) if scraper.yields() else None,
-        cook_time=scraper.cook_time(),
-        prep_time=scraper.prep_time(),
+        image_url=_safe_scrape(scraper.image),
+        servings=str(yields_value) if yields_value else None,
+        cook_time=_safe_scrape(scraper.cook_time),
+        prep_time=_safe_scrape(scraper.prep_time),
         source_url=url,
-        categories=[scraper.category()] if scraper.category() else [],
+        categories=[category] if category else [],
     )
 
 
