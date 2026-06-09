@@ -13,6 +13,100 @@ from recipe_scrapers._abstract import AbstractScraper
 from .models import Ingredient, Recipe
 from .utils import generate_id, unique_slug
 
+MEAL_TAG_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "breakfast": (
+        "frühstück",
+        "fruehstueck",
+        "breakfast",
+        "morgen",
+        "brunch",
+        "müsli",
+        "muesli",
+        "porridge",
+        "pancake",
+        "pfannkuchen",
+        "omelett",
+        "rührei",
+        "croissant",
+    ),
+    "lunch": (
+        "mittag",
+        "lunch",
+        "suppe",
+        "salat",
+        "bowl",
+        "sandwich",
+        "brotzeit",
+    ),
+    "dinner": (
+        "abend",
+        "dinner",
+        "abendessen",
+        "hauptgericht",
+        "auflauf",
+        "curry",
+        "pasta",
+        "nudeln",
+        "grill",
+    ),
+    "side": (
+        "beilage",
+        "side dish",
+        "kartoffel",
+        "reis",
+        "gemüsebeilage",
+    ),
+    "dessert": (
+        "dessert",
+        "nachtisch",
+        "kuchen",
+        "torte",
+        "muffin",
+        "eis",
+        "pudding",
+        "süß",
+        "suess",
+    ),
+    "drink": (
+        "getränk",
+        "getraenk",
+        "drink",
+        "smoothie",
+        "shake",
+        "cocktail",
+        "limonade",
+        "tee",
+        "kaffee",
+    ),
+    "snack": (
+        "snack",
+        "imbiss",
+        "fingerfood",
+        "plätzchen",
+        "keks",
+        "cookie",
+        "chips",
+    ),
+}
+
+
+def suggest_meal_tags_for_recipe(recipe: Recipe) -> list[str]:
+    """Suggest meal-type tags from recipe metadata."""
+    haystack = " ".join(
+        [
+            recipe.name or "",
+            recipe.description or "",
+            " ".join(recipe.categories),
+            " ".join(recipe.tags),
+        ]
+    ).lower()
+    suggested: list[str] = []
+    for meal_type, keywords in MEAL_TAG_KEYWORDS.items():
+        if any(keyword in haystack for keyword in keywords):
+            suggested.append(meal_type)
+    return suggested
+
+
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
@@ -271,12 +365,19 @@ async def async_preview_recipe_from_url(hass: HomeAssistant, url: str) -> Recipe
 
 
 async def async_import_recipe_from_url(
-    hass: HomeAssistant, url: str, include_tags: bool = False
+    hass: HomeAssistant, url: str, include_tags: bool = False, *, suggest_meal_tags: bool = False
 ) -> Recipe:
     """Fetch and scrape a recipe from URL."""
     recipe = await async_preview_recipe_from_url(hass, url)
 
     if include_tags and recipe.categories:
         recipe.tags = list(recipe.categories)
+
+    if suggest_meal_tags:
+        existing = set(recipe.tags)
+        for tag in suggest_meal_tags_for_recipe(recipe):
+            if tag not in existing:
+                recipe.tags.append(tag)
+                existing.add(tag)
 
     return recipe

@@ -1,12 +1,17 @@
 /* Essensplaner – Home Assistant Sidebar Panel */
 
-const MEALS = [
+const ALL_MEALS = [
   { id: "breakfast", label: "Frühstück", icon: "mdi:coffee" },
   { id: "lunch", label: "Mittagessen", icon: "mdi:silverware-fork-knife" },
   { id: "dinner", label: "Abendessen", icon: "mdi:food-turkey" },
+  { id: "side", label: "Beilage", icon: "mdi:food-variant" },
+  { id: "dessert", label: "Dessert", icon: "mdi:cupcake" },
+  { id: "drink", label: "Getränk", icon: "mdi:glass-cocktail" },
+  { id: "snack", label: "Snack", icon: "mdi:cookie" },
 ];
 
-const MEAL_TAG_IDS = new Set(MEALS.map((m) => m.id));
+const MEAL_TAG_IDS = new Set(ALL_MEALS.map((m) => m.id));
+const DEFAULT_VISIBLE_MEALS = ["breakfast", "lunch", "dinner"];
 
 class PanelEssensplaner extends HTMLElement {
   constructor() {
@@ -33,6 +38,16 @@ class PanelEssensplaner extends HTMLElement {
     this._mealTimes = {};
     this._shoppingLists = [];
     this._defaultShoppingListId = null;
+    this._recipesPerRow = 5;
+    this._visibleMealTypes = [...DEFAULT_VISIBLE_MEALS];
+    this._weekStart = "monday";
+    this._defaultWeek = "current";
+    this._recipeSort = "name";
+    this._tileSize = "compact";
+    this._showRecipeImages = true;
+    this._suggestMealTagsOnImport = true;
+    this._recipeLastPlanned = {};
+    this._weekOffsetApplied = false;
     this._inspirationQuery = "";
     this._inspirationResults = [];
     this._inspirationLoading = false;
@@ -221,6 +236,7 @@ class PanelEssensplaner extends HTMLElement {
     if (!this._entryId) return;
     this._loading = true;
     this._paint();
+    await this._loadPanelSettings();
     try {
       const r = await this._svc("get_recipes", { result_limit: 100 });
       this._recipes = this._extractRecipes(r);
@@ -237,7 +253,6 @@ class PanelEssensplaner extends HTMLElement {
     } catch (e) {
       this._notify("Essensplan laden fehlgeschlagen: " + (e.message || e), true);
     }
-    await this._loadPanelSettings();
     this._dataLoaded = true;
     this._loading = false;
     this._paint();
@@ -299,25 +314,79 @@ class PanelEssensplaner extends HTMLElement {
   }
 
   _weekRange() {
-    const start = this._today();
-    start.setDate(start.getDate() + this._weekOffset * 7);
-    const monday = new Date(start);
-    const day = monday.getDay();
-    const diff = day === 0 ? -6 : 1 - day;
-    monday.setDate(monday.getDate() + diff);
-    const sunday = new Date(monday);
-    sunday.setDate(sunday.getDate() + 6);
+    const anchor = this._today();
+    anchor.setDate(anchor.getDate() + this._weekOffset * 7);
+    const weekStart = new Date(anchor);
+    const day = weekStart.getDay();
+    if (this._weekStart === "sunday") {
+      weekStart.setDate(weekStart.getDate() - day);
+    } else {
+      const diff = day === 0 ? -6 : 1 - day;
+      weekStart.setDate(weekStart.getDate() + diff);
+    }
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 6);
     return {
-      start: this._fmtIsoLocal(monday),
-      end: this._fmtIsoLocal(sunday),
+      start: this._fmtIsoLocal(weekStart),
+      end: this._fmtIsoLocal(weekEnd),
       days: Array.from({ length: 7 }, (_, i) => {
-        const d = new Date(monday);
+        const d = new Date(weekStart);
         d.setDate(d.getDate() + i);
         return this._fmtIsoLocal(d);
       }),
-      monday,
-      sunday,
+      weekStart,
+      weekEnd,
+      monday: weekStart,
+      sunday: weekEnd,
     };
+  }
+
+  _visibleMeals() {
+    const ids = this._visibleMealTypes?.length ? this._visibleMealTypes : DEFAULT_VISIBLE_MEALS;
+    return ALL_MEALS.filter((m) => ids.includes(m.id));
+  }
+
+  _applyPanelOptions(res) {
+    if (!res) return;
+    this._recipesPerRow = this._normalizeRecipesPerRow(res.recipes_per_row);
+    this._visibleMealTypes =
+      Array.isArray(res.visible_meal_types) && res.visible_meal_types.length
+        ? res.visible_meal_types
+        : [...DEFAULT_VISIBLE_MEALS];
+    this._weekStart = res.week_start === "sunday" ? "sunday" : "monday";
+    this._defaultWeek = res.default_week === "next" ? "next" : "current";
+    this._recipeSort = ["name", "updated", "last_planned"].includes(res.recipe_sort)
+      ? res.recipe_sort
+      : "name";
+    this._tileSize = res.tile_size === "large" ? "large" : "compact";
+    this._showRecipeImages = res.show_recipe_images !== false;
+    this._suggestMealTagsOnImport = res.suggest_meal_tags_on_import !== false;
+    this._recipeLastPlanned = res.recipe_last_planned || {};
+    if (this._mealFilter && !this._visibleMealTypes.includes(this._mealFilter)) {
+      this._mealFilter = null;
+    }
+  }
+
+  _sortRecipeList(list) {
+    const sort = this._recipeSort || "name";
+    const lastPlanned = this._recipeLastPlanned || {};
+    if (sort === "updated") {
+      list.sort((a, b) => {
+        const cmp = (b.updated_at || "").localeCompare(a.updated_at || "");
+        return cmp || a.name.localeCompare(b.name, "de");
+      });
+      return;
+    }
+    if (sort === "last_planned") {
+      list.sort((a, b) => {
+        const da = lastPlanned[a.id] || "";
+        const db = lastPlanned[b.id] || "";
+        const cmp = db.localeCompare(da);
+        return cmp || a.name.localeCompare(b.name, "de");
+      });
+      return;
+    }
+    list.sort((a, b) => a.name.localeCompare(b.name, "de"));
   }
 
   _fmtDay(iso) {
@@ -335,12 +404,16 @@ class PanelEssensplaner extends HTMLElement {
     if (this._mealFilter) {
       list = list.filter((r) => (r.tags || []).includes(this._mealFilter));
     }
-    if (!this._search) return list;
-    const q = this._search.toLowerCase();
-    return list.filter((r) =>
-      [r.name, r.description, ...(r.tags || []), ...(r.categories || [])]
-        .join(" ").toLowerCase().includes(q)
-    );
+    if (this._search) {
+      const q = this._search.toLowerCase();
+      list = list.filter((r) =>
+        [r.name, r.description, ...(r.tags || []), ...(r.categories || [])]
+          .join(" ").toLowerCase().includes(q)
+      );
+    }
+    list = [...list];
+    this._sortRecipeList(list);
+    return list;
   }
 
   _recipeMealTags(recipe) {
@@ -352,7 +425,7 @@ class PanelEssensplaner extends HTMLElement {
   }
 
   _mealTagLabel(id) {
-    return MEALS.find((m) => m.id === id)?.label || id;
+    return ALL_MEALS.find((m) => m.id === id)?.label || id;
   }
 
   _instructionsToText(steps) {
@@ -367,7 +440,7 @@ class PanelEssensplaner extends HTMLElement {
   }
 
   _selectedMealTagsFromForm() {
-    return MEALS.filter((m) => this.querySelector(`[name="meal-${m.id}"]`)?.checked).map(
+    return ALL_MEALS.filter((m) => this.querySelector(`[name="meal-${m.id}"]`)?.checked).map(
       (m) => m.id
     );
   }
@@ -466,7 +539,7 @@ class PanelEssensplaner extends HTMLElement {
   }
 
   _mealLabel(id) {
-    return MEALS.find((m) => m.id === id)?.label || id;
+    return ALL_MEALS.find((m) => m.id === id)?.label || id;
   }
 
   _toTimeInput(value) {
@@ -544,6 +617,11 @@ class PanelEssensplaner extends HTMLElement {
       this._shoppingLists = this._enrichShoppingListsFromHass(res?.shopping_lists || []);
       this._defaultShoppingListId =
         res?.default_shopping_list_id || this._shoppingLists[0]?.id || null;
+      this._applyPanelOptions(res);
+      if (!this._weekOffsetApplied) {
+        this._weekOffset = this._defaultWeek === "next" ? 1 : 0;
+        this._weekOffsetApplied = true;
+      }
     } catch (e) {
       console.warn("Essensplaner: Einstellungen laden fehlgeschlagen", e);
       this._shoppingLists = this._enrichShoppingListsFromHass([]);
@@ -559,7 +637,7 @@ class PanelEssensplaner extends HTMLElement {
 
   async _saveMealTimes() {
     const meal_times = {};
-    for (const m of MEALS) {
+    for (const m of this._visibleMeals()) {
       const start = this._formVal(`time-${m.id}-start`);
       const end = this._formVal(`time-${m.id}-end`);
       if (!start || !end) {
@@ -587,6 +665,52 @@ class PanelEssensplaner extends HTMLElement {
         msg.includes("admin") || msg.includes("unauthorized")
           ? "Nur Administratoren können Essenszeiten ändern"
           : "Essenszeiten speichern fehlgeschlagen: " + msg,
+        true
+      );
+    }
+  }
+
+  _normalizeRecipesPerRow(value) {
+    const n = Number.parseInt(value, 10);
+    if (!Number.isFinite(n)) return 5;
+    return Math.min(8, Math.max(2, n));
+  }
+
+  async _savePanelOptions() {
+    const visibleMealTypes = ALL_MEALS.filter(
+      (m) => this.querySelector(`[name="visible-meal-${m.id}"]`)?.checked
+    ).map((m) => m.id);
+    if (!visibleMealTypes.length) {
+      this._notify("Mindestens eine Mahlzeit muss sichtbar sein", true);
+      return;
+    }
+    const options = {
+      recipes_per_row: this._normalizeRecipesPerRow(this._formVal("recipes-per-row")),
+      visible_meal_types: visibleMealTypes,
+      week_start: this._formVal("week-start") || "monday",
+      default_week: this._formVal("default-week") || "current",
+      recipe_sort: this._formVal("recipe-sort") || "name",
+      tile_size: this._formVal("tile-size") || "compact",
+      show_recipe_images: this.querySelector('[name="show-recipe-images"]')?.checked ?? true,
+      suggest_meal_tags_on_import:
+        this.querySelector('[name="suggest-meal-tags"]')?.checked ?? true,
+    };
+    try {
+      const res = await this._hass.callWS({
+        type: "essensplaner/set_panel_options",
+        entry_id: this._entryId,
+        ...options,
+      });
+      this._applyPanelOptions(res);
+      this._notify("Einstellungen gespeichert");
+      await this._reloadPlan();
+      this._paint();
+    } catch (e) {
+      const msg = e?.message || String(e);
+      this._notify(
+        msg.includes("admin") || msg.includes("unauthorized")
+          ? "Nur Administratoren können Einstellungen ändern"
+          : "Einstellungen speichern fehlgeschlagen: " + msg,
         true
       );
     }
@@ -686,7 +810,7 @@ class PanelEssensplaner extends HTMLElement {
       chips.push(`<span class="meta-chip"><ha-icon icon="mdi:stove"></ha-icon>${cook}</span>`);
     }
     for (const id of this._recipeMealTags(recipe)) {
-      const meal = MEALS.find((m) => m.id === id);
+      const meal = ALL_MEALS.find((m) => m.id === id);
       chips.push(
         `<span class="meta-chip meal-tag"><ha-icon icon="${meal?.icon || "mdi:food"}"></ha-icon>${this._esc(this._mealTagLabel(id))}</span>`
       );
@@ -944,6 +1068,8 @@ class PanelEssensplaner extends HTMLElement {
       this._mode = "view";
       this._mealTimesOpen = false;
       this._dataLoaded = false;
+      this._weekOffsetApplied = false;
+      this._weekOffset = 0;
       await this._load();
     }
   }
@@ -1039,6 +1165,7 @@ class PanelEssensplaner extends HTMLElement {
     if (a === "week-today") { this._weekOffset = 0; await this._reloadPlan(); return; }
     if (a === "times-save") { await this._saveMealTimes(); return; }
     if (a === "shopping-list-save") { await this._saveDefaultShoppingList(); return; }
+    if (a === "panel-options-save") { await this._savePanelOptions(); return; }
     if (a === "plan-cell") {
       this._dialog = { date: t.dataset.date, type: t.dataset.type, label: this._mealLabel(t.dataset.type) };
       this._dialogSearch = "";
@@ -1109,7 +1236,7 @@ class PanelEssensplaner extends HTMLElement {
       if (this._formDraft.servings !== undefined) data.servings = this._formDraft.servings;
     }
     const previewUrl = data.image_url?.trim();
-    const mealChecks = MEALS.map(
+    const mealChecks = ALL_MEALS.map(
       (m) => `
         <label class="meal-check">
           <input type="checkbox" name="meal-${m.id}" ${data.mealTags.includes(m.id) ? "checked" : ""}>
@@ -1194,9 +1321,10 @@ class PanelEssensplaner extends HTMLElement {
           .map((id) => `<span class="rc-meal-tag">${this._esc(this._mealTagLabel(id))}</span>`)
           .join("")}</span>`
       : "";
+    const showImage = this._showRecipeImages !== false;
     return `
-      <button type="button" class="recipe-tile ${this._selected?.id === r.id ? "on" : ""}" data-a="select" data-id="${r.id}">
-        <div class="tile-media">${this._renderRecipeThumb(r, "tile")}</div>
+      <button type="button" class="recipe-tile ${this._selected?.id === r.id ? "on" : ""} ${showImage ? "" : "no-image"}" data-a="select" data-id="${r.id}">
+        ${showImage ? `<div class="tile-media">${this._renderRecipeThumb(r, "tile")}</div>` : ""}
         <div class="tile-body">
           <strong class="tile-title">${this._esc(r.name)}</strong>
           ${mealHtml}
@@ -1244,10 +1372,83 @@ class PanelEssensplaner extends HTMLElement {
     return "";
   }
 
+  _renderRecipesPerRowSelect() {
+    const current = this._normalizeRecipesPerRow(this._recipesPerRow);
+    const options = [2, 3, 4, 5, 6, 7, 8]
+      .map(
+        (n) =>
+          `<option value="${n}" ${n === current ? "selected" : ""}>${n} Rezepte pro Zeile</option>`
+      )
+      .join("");
+    return `
+      <label class="config-field">
+        <span>Spaltenanzahl</span>
+        <select class="inp" name="recipes-per-row">${options}</select>
+      </label>`;
+  }
+
+  _renderVisibleMealsCheckboxes() {
+    const visible = new Set(this._visibleMealTypes || DEFAULT_VISIBLE_MEALS);
+    return `
+      <fieldset class="meal-tag-field config-meals-field">
+        <legend>Sichtbare Mahlzeiten</legend>
+        <div class="meal-checks">
+          ${ALL_MEALS.map(
+            (m) => `
+            <label class="meal-check">
+              <input type="checkbox" name="visible-meal-${m.id}" ${visible.has(m.id) ? "checked" : ""}>
+              <ha-icon icon="${m.icon}"></ha-icon>
+              <span>${m.label}</span>
+            </label>`
+          ).join("")}
+        </div>
+      </fieldset>`;
+  }
+
+  _renderPanelOptionsFields() {
+    const recipeSort = this._recipeSort || "name";
+    const tileSize = this._tileSize === "large" ? "large" : "compact";
+    return `
+      <div class="config-grid">
+        <label class="config-field">
+          <span>Standard-Sortierung</span>
+          <select class="inp" name="recipe-sort">
+            <option value="name" ${recipeSort === "name" ? "selected" : ""}>Name (A–Z)</option>
+            <option value="updated" ${recipeSort === "updated" ? "selected" : ""}>Zuletzt bearbeitet</option>
+            <option value="last_planned" ${recipeSort === "last_planned" ? "selected" : ""}>Zuletzt geplant</option>
+          </select>
+        </label>
+        <label class="config-field">
+          <span>Kachelgröße</span>
+          <select class="inp" name="tile-size">
+            <option value="compact" ${tileSize === "compact" ? "selected" : ""}>Kompakt</option>
+            <option value="large" ${tileSize === "large" ? "selected" : ""}>Groß</option>
+          </select>
+        </label>
+        ${this._renderRecipesPerRowSelect()}
+      </div>
+      <label class="config-toggle">
+        <input type="checkbox" name="show-recipe-images" ${this._showRecipeImages !== false ? "checked" : ""}>
+        <span>Rezeptbilder in der Übersicht anzeigen</span>
+      </label>
+      <label class="config-toggle">
+        <input type="checkbox" name="suggest-meal-tags" ${this._suggestMealTagsOnImport !== false ? "checked" : ""}>
+        <span>Beim Import automatisch Mahlzeit-Tags vorschlagen</span>
+      </label>`;
+  }
+
   _renderRecipesTab() {
     const list = this._filtered();
+    const cols = this._normalizeRecipesPerRow(this._recipesPerRow);
+    const gridClass = [
+      "recipe-grid",
+      this._tileSize === "large" ? "tiles-large" : "tiles-compact",
+      this._showRecipeImages === false ? "hide-images" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
     const grid = list.length
-      ? `<div class="recipe-grid">${list.map((r) => this._renderRecipeTile(r)).join("")}</div>`
+      ? `<div class="${gridClass}" style="--recipe-cols:${cols}">${list.map((r) => this._renderRecipeTile(r)).join("")}</div>`
       : `<p class="muted center empty-grid">Noch keine Rezepte – URL importieren oder „Neues Rezept“.</p>`;
 
     return `
@@ -1262,7 +1463,7 @@ class PanelEssensplaner extends HTMLElement {
       </div>
       <div class="meal-filters">
         <button type="button" class="filter-chip ${!this._mealFilter ? "on" : ""}" data-a="filter-meal" data-meal="">Alle</button>
-        ${MEALS.map(
+        ${this._visibleMeals().map(
           (m) => `
           <button type="button" class="filter-chip ${this._mealFilter === m.id ? "on" : ""}" data-a="filter-meal" data-meal="${m.id}">
             <ha-icon icon="${m.icon}"></ha-icon>${m.label}
@@ -1274,7 +1475,7 @@ class PanelEssensplaner extends HTMLElement {
   }
 
   _renderMealTimesFields() {
-    return MEALS.map((m) => {
+    return this._visibleMeals().map((m) => {
       const slot = this._mealTimes[m.id] || { start: "12:00", end: "13:00" };
       return `
         <div class="times-row">
@@ -1506,6 +1707,38 @@ class PanelEssensplaner extends HTMLElement {
           </div>
         </section>
         <section class="config-card">
+          <h2 class="config-title"><ha-icon icon="mdi:calendar-week"></ha-icon> Essensplan</h2>
+          <p class="muted config-hint">Welche Mahlzeiten im Wochenplan erscheinen und wie die Woche startet.</p>
+          ${this._renderVisibleMealsCheckboxes()}
+          <div class="config-grid">
+            <label class="config-field">
+              <span>Wochenstart</span>
+              <select class="inp" name="week-start">
+                <option value="monday" ${this._weekStart !== "sunday" ? "selected" : ""}>Montag</option>
+                <option value="sunday" ${this._weekStart === "sunday" ? "selected" : ""}>Sonntag</option>
+              </select>
+            </label>
+            <label class="config-field">
+              <span>Standard-Woche</span>
+              <select class="inp" name="default-week">
+                <option value="current" ${this._defaultWeek !== "next" ? "selected" : ""}>Aktuelle Woche</option>
+                <option value="next" ${this._defaultWeek === "next" ? "selected" : ""}>Nächste Woche</option>
+              </select>
+            </label>
+          </div>
+          <div class="btn-row">
+            <button type="button" class="btn primary" data-a="panel-options-save">Essensplan-Einstellungen speichern</button>
+          </div>
+        </section>
+        <section class="config-card">
+          <h2 class="config-title"><ha-icon icon="mdi:view-grid"></ha-icon> Rezept-Ansicht</h2>
+          <p class="muted config-hint">Darstellung der Rezeptübersicht und Sortierung.</p>
+          ${this._renderPanelOptionsFields()}
+          <div class="btn-row">
+            <button type="button" class="btn primary" data-a="panel-options-save">Anzeige-Einstellungen speichern</button>
+          </div>
+        </section>
+        <section class="config-card">
           <h2 class="config-title"><ha-icon icon="mdi:cart"></ha-icon> Einkaufsliste</h2>
           <p class="muted config-hint">Liste für den Button „Einkaufsliste“ im Rezept – Essensplaner oder beliebige To-do-Liste in HA.</p>
           ${this._renderShoppingListSelect()}
@@ -1549,7 +1782,7 @@ class PanelEssensplaner extends HTMLElement {
           ${today ? `<span class="day-today-badge">Heute</span>` : ""}
         </th>`;
     }).join("");
-    const rows = MEALS.map((m) => {
+    const rows = this._visibleMeals().map((m) => {
       const timeHint = this._mealTimeLabel(m.id);
       const cells = days.map((day) => this._renderPlanCell(day, m)).join("");
       return `
@@ -1828,12 +2061,39 @@ PanelEssensplaner._CSS = `
     background: var(--primary-color); color: var(--text-primary-color, #fff);
   }
   .recipe-grid {
-    display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px;
+    display: grid; grid-template-columns: repeat(var(--recipe-cols, 5), minmax(0, 1fr)); gap: 16px;
   }
-  @media (max-width: 1400px) { .recipe-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
-  @media (max-width: 1100px) { .recipe-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-  @media (max-width: 760px) { .recipe-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 1400px) {
+    .recipe-grid { grid-template-columns: repeat(min(var(--recipe-cols, 5), 4), minmax(0, 1fr)); }
+  }
+  @media (max-width: 1100px) {
+    .recipe-grid { grid-template-columns: repeat(min(var(--recipe-cols, 5), 3), minmax(0, 1fr)); }
+  }
+  @media (max-width: 760px) {
+    .recipe-grid { grid-template-columns: repeat(min(var(--recipe-cols, 5), 2), minmax(0, 1fr)); }
+  }
   @media (max-width: 440px) { .recipe-grid { grid-template-columns: 1fr; } }
+  .config-field {
+    display: flex; flex-direction: column; gap: 6px; max-width: 320px;
+  }
+  .config-field > span { font-size: 0.85rem; font-weight: 600; }
+  .config-grid {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px;
+  }
+  @media (max-width: 700px) { .config-grid { grid-template-columns: 1fr; } }
+  .config-meals-field { margin-bottom: 14px; }
+  .config-toggle {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: 0.9rem;
+  }
+  .config-toggle input { width: 18px; height: 18px; }
+  .recipe-grid.tiles-compact .tile-media { aspect-ratio: 3 / 2; }
+  .recipe-grid.tiles-compact .tile-title { font-size: 0.82rem; -webkit-line-clamp: 1; }
+  .recipe-grid.tiles-compact .tile-meta { display: none; }
+  .recipe-grid.tiles-compact .tile-body { padding: 8px 10px 10px; }
+  .recipe-grid.tiles-large .tile-media { aspect-ratio: 16 / 10; }
+  .recipe-grid.tiles-large .tile-title { font-size: 1rem; -webkit-line-clamp: 3; }
+  .recipe-grid.tiles-large .tile-body { padding: 12px 14px 16px; }
+  .recipe-tile.no-image .tile-body { padding-top: 14px; }
   .empty-grid { grid-column: 1 / -1; padding: 32px 0; }
   .recipe-tile {
     display: flex; flex-direction: column; width: 100%; text-align: left;

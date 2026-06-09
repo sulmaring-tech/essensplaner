@@ -8,6 +8,7 @@ from random import choice
 from typing import TYPE_CHECKING
 
 from homeassistant.helpers.storage import Store
+from homeassistant.util import dt as dt_util
 
 from .const import (
     DEFAULT_SHOPPING_LIST_NAME,
@@ -95,6 +96,7 @@ class EssensplanerStore:
     async def async_add_recipe(self, recipe: Recipe) -> Recipe:
         """Add or update a recipe."""
         async with self._lock:
+            recipe.updated_at = dt_util.utcnow().isoformat()
             existing_slugs = {r.slug for r in self._data.recipes.values() if r.id != recipe.id}
             if recipe.slug in existing_slugs:
                 recipe.slug = unique_slug(recipe.name, existing_slugs)

@@ -48,6 +48,7 @@ class Recipe:
     prep_time: int | None = None
     servings: str | None = None
     source_url: str | None = None
+    updated_at: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return dict representation."""
@@ -74,6 +75,7 @@ class Recipe:
             prep_time=data.get("prep_time"),
             servings=data.get("servings"),
             source_url=data.get("source_url"),
+            updated_at=data.get("updated_at"),
         )
 
 

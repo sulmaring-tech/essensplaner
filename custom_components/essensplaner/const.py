@@ -12,6 +12,29 @@ STORAGE_KEY = "essensplaner.{entry_id}"
 
 CONF_HOUSEHOLD_NAME = "household_name"
 OPTION_DEFAULT_SHOPPING_LIST_ID = "default_shopping_list_id"
+OPTION_RECIPES_PER_ROW = "recipes_per_row"
+OPTION_VISIBLE_MEAL_TYPES = "visible_meal_types"
+OPTION_WEEK_START = "week_start"
+OPTION_DEFAULT_WEEK = "default_week"
+OPTION_RECIPE_SORT = "recipe_sort"
+OPTION_TILE_SIZE = "tile_size"
+OPTION_SHOW_RECIPE_IMAGES = "show_recipe_images"
+OPTION_SUGGEST_MEAL_TAGS_ON_IMPORT = "suggest_meal_tags_on_import"
+
+DEFAULT_RECIPES_PER_ROW = 5
+MIN_RECIPES_PER_ROW = 2
+MAX_RECIPES_PER_ROW = 8
+
+WEEK_START_MONDAY = "monday"
+WEEK_START_SUNDAY = "sunday"
+DEFAULT_WEEK_CURRENT = "current"
+
+RECIPE_SORT_NAME = "name"
+RECIPE_SORT_UPDATED = "updated"
+RECIPE_SORT_LAST_PLANNED = "last_planned"
+
+TILE_SIZE_COMPACT = "compact"
+TILE_SIZE_LARGE = "large"
 
 ATTR_START_DATE = "start_date"
 ATTR_END_DATE = "end_date"
@@ -57,6 +80,13 @@ class MealplanEntryType(StrEnum):
     DESSERT = "dessert"
     DRINK = "drink"
     SNACK = "snack"
+
+
+DEFAULT_VISIBLE_MEAL_TYPES: tuple[str, ...] = (
+    MealplanEntryType.BREAKFAST,
+    MealplanEntryType.LUNCH,
+    MealplanEntryType.DINNER,
+)
 
 
 MEALPLAN_ENTRY_TYPES = list(MealplanEntryType)

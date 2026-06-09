@@ -14,12 +14,23 @@ from .const import (
     DOMAIN,
     LOVELACE_CARD_URL,
     LOGGER,
+    MAX_RECIPES_PER_ROW,
+    MIN_RECIPES_PER_ROW,
     OPTION_DEFAULT_SHOPPING_LIST_ID,
+    OPTION_DEFAULT_WEEK,
+    OPTION_RECIPES_PER_ROW,
+    OPTION_RECIPE_SORT,
+    OPTION_SHOW_RECIPE_IMAGES,
+    OPTION_SUGGEST_MEAL_TAGS_ON_IMPORT,
+    OPTION_TILE_SIZE,
+    OPTION_VISIBLE_MEAL_TYPES,
+    OPTION_WEEK_START,
     PANEL_JS_URL,
     PANEL_STATIC_PATH,
     PANEL_URL_PATH,
 )
 from .meal_times import meal_times_to_api, merge_meal_times_from_api
+from .panel_options import merge_panel_options, panel_options_to_api
 from .panel_stats import get_panel_statistics
 from .shopping_targets import (
     is_valid_target,
@@ -33,7 +44,7 @@ _PANEL_REGISTERED = "panel_registered"
 _STATIC_REGISTERED = "static_registered"
 _LOVELACE_CARD_REGISTERED = "lovelace_card_registered"
 _WS_REGISTERED = "ws_registered"
-_PANEL_WS_VERSION = 4
+_PANEL_WS_VERSION = 6
 _PANEL_WS_VERSION_KEY = "panel_ws_version"
 
 
@@ -62,6 +73,7 @@ def _panel_settings(hass: HomeAssistant, entry) -> dict:
         "meal_times": meal_times_to_api(entry.options),
         "shopping_lists": shopping_lists,
         "default_shopping_list_id": default_list_id,
+        **panel_options_to_api(store, entry.options),
     }
 
 
@@ -225,6 +237,79 @@ def _async_register_ws(hass: HomeAssistant) -> None:
         hass.config_entries.async_update_entry(entry, options=options)
         connection.send_result(msg["id"], _panel_settings(hass, entry))
 
+    @websocket_api.require_admin
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): f"{DOMAIN}/set_recipes_per_row",
+            vol.Required("entry_id"): str,
+            vol.Required("columns"): vol.All(
+                vol.Coerce(int), vol.Range(min=MIN_RECIPES_PER_ROW, max=MAX_RECIPES_PER_ROW)
+            ),
+        }
+    )
+    @websocket_api.async_response
+    async def ws_set_recipes_per_row(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict,
+    ) -> None:
+        entry = _get_config_entry(hass, msg["entry_id"])
+        if entry is None:
+            connection.send_error(msg["id"], "not_found", "Config entry not found")
+            return
+        options = dict(entry.options)
+        options[OPTION_RECIPES_PER_ROW] = msg["columns"]
+        hass.config_entries.async_update_entry(entry, options=options)
+        connection.send_result(msg["id"], _panel_settings(hass, entry))
+
+    @websocket_api.require_admin
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): f"{DOMAIN}/set_panel_options",
+            vol.Required("entry_id"): str,
+            vol.Optional(OPTION_RECIPES_PER_ROW): vol.All(
+                vol.Coerce(int), vol.Range(min=MIN_RECIPES_PER_ROW, max=MAX_RECIPES_PER_ROW)
+            ),
+            vol.Optional(OPTION_VISIBLE_MEAL_TYPES): [str],
+            vol.Optional(OPTION_WEEK_START): str,
+            vol.Optional(OPTION_DEFAULT_WEEK): str,
+            vol.Optional(OPTION_RECIPE_SORT): str,
+            vol.Optional(OPTION_TILE_SIZE): str,
+            vol.Optional(OPTION_SHOW_RECIPE_IMAGES): bool,
+            vol.Optional(OPTION_SUGGEST_MEAL_TAGS_ON_IMPORT): bool,
+        }
+    )
+    @websocket_api.async_response
+    async def ws_set_panel_options(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict,
+    ) -> None:
+        entry = _get_config_entry(hass, msg["entry_id"])
+        if entry is None:
+            connection.send_error(msg["id"], "not_found", "Config entry not found")
+            return
+        updates = {
+            key: msg[key]
+            for key in (
+                OPTION_RECIPES_PER_ROW,
+                OPTION_VISIBLE_MEAL_TYPES,
+                OPTION_WEEK_START,
+                OPTION_DEFAULT_WEEK,
+                OPTION_RECIPE_SORT,
+                OPTION_TILE_SIZE,
+                OPTION_SHOW_RECIPE_IMAGES,
+                OPTION_SUGGEST_MEAL_TAGS_ON_IMPORT,
+            )
+            if key in msg
+        }
+        if not updates:
+            connection.send_error(msg["id"], "invalid_options", "No options provided")
+            return
+        options = merge_panel_options(entry.options, updates)
+        hass.config_entries.async_update_entry(entry, options=options)
+        connection.send_result(msg["id"], _panel_settings(hass, entry))
+
     @websocket_api.websocket_command(
         {
             vol.Required("type"): f"{DOMAIN}/search_recipes_online",
@@ -279,6 +364,8 @@ def _async_register_ws(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_statistics)
     websocket_api.async_register_command(hass, ws_set_meal_times)
     websocket_api.async_register_command(hass, ws_set_default_shopping_list)
+    websocket_api.async_register_command(hass, ws_set_recipes_per_row)
+    websocket_api.async_register_command(hass, ws_set_panel_options)
     websocket_api.async_register_command(hass, ws_search_recipes_online)
     websocket_api.async_register_command(hass, ws_preview_recipe_url)
     hass.data[DOMAIN][_WS_REGISTERED] = True

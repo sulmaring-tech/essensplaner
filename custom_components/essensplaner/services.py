@@ -67,6 +67,7 @@ from .coordinator import EssensplanerConfigEntry
 from .meal_times import format_time_value, resolve_meal_slot_times
 from .models import Ingredient, MealplanEntry, Recipe
 from .online_search import async_search_recipes_online
+from .panel_options import suggest_meal_tags_on_import_enabled
 from .recipe_importer import (
     async_import_recipe_from_url,
     normalize_servings,
@@ -323,7 +324,12 @@ async def _async_import_recipe(call: ServiceCall) -> ServiceResponse:
     store = entry.runtime_data.store
 
     try:
-        recipe = await async_import_recipe_from_url(call.hass, url, include_tags)
+        recipe = await async_import_recipe_from_url(
+            call.hass,
+            url,
+            include_tags,
+            suggest_meal_tags=suggest_meal_tags_on_import_enabled(entry),
+        )
         existing_slugs = {r.slug for r in store.data.recipes.values()}
         recipe.slug = unique_slug(recipe.name, existing_slugs)
         recipe = await store.async_add_recipe(recipe)
