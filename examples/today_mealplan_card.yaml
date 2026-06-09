@@ -1,0 +1,11 @@
+# Essensplan – Karte für den heutigen Tag mit Rezeptbildern
+#
+# 1) Integration neu laden (Sensor: sensor.<haushalt>_mealplan_today)
+# 2) Lovelace-Ressource hinzufügen (Dashboard → ⋮ → Ressourcen):
+#      url: /essensplaner_static/today-mealplan-card.js
+#      type: module
+# 3) Entity-ID unten anpassen (z. B. sensor.haushalt_mealplan_today)
+
+type: custom:today-mealplan-card
+entity: sensor.haushalt_mealplan_today
+title: Essensplan heute

@@ -52,7 +52,8 @@
       "categories": { "name": "Categories" },
       "tags": { "name": "Tags" },
       "tools": { "name": "Tools" },
-      "cookbooks": { "name": "Cookbooks" }
+      "cookbooks": { "name": "Cookbooks" },
+      "mealplan_today": { "name": "Today's meal plan" }
     },
     "todo": {
       "shopping_list": { "name": "{list_name}" }

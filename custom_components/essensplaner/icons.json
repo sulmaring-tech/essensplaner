@@ -14,7 +14,8 @@
       "categories": { "default": "mdi:shape" },
       "tags": { "default": "mdi:tag-multiple" },
       "tools": { "default": "mdi:pot-steam" },
-      "cookbooks": { "default": "mdi:notebook" }
+      "cookbooks": { "default": "mdi:notebook" },
+      "mealplan_today": { "default": "mdi:calendar-today" }
     },
     "todo": {
       "shopping_list": { "default": "mdi:cart" }

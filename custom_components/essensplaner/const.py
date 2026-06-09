@@ -60,6 +60,32 @@ class MealplanEntryType(StrEnum):
 
 MEALPLAN_ENTRY_TYPES = list(MealplanEntryType)
 
+DASHBOARD_MEAL_TYPES: tuple[MealplanEntryType, ...] = (
+    MealplanEntryType.BREAKFAST,
+    MealplanEntryType.LUNCH,
+    MealplanEntryType.DINNER,
+)
+
+MEAL_TYPE_LABELS: dict[str, str] = {
+    MealplanEntryType.BREAKFAST: "Frühstück",
+    MealplanEntryType.LUNCH: "Mittagessen",
+    MealplanEntryType.DINNER: "Abendessen",
+    MealplanEntryType.SIDE: "Beilage",
+    MealplanEntryType.DESSERT: "Dessert",
+    MealplanEntryType.DRINK: "Getränk",
+    MealplanEntryType.SNACK: "Snack",
+}
+
+MEAL_TYPE_ICONS: dict[str, str] = {
+    MealplanEntryType.BREAKFAST: "mdi:coffee",
+    MealplanEntryType.LUNCH: "mdi:silverware-fork-knife",
+    MealplanEntryType.DINNER: "mdi:food-turkey",
+    MealplanEntryType.SIDE: "mdi:food-variant",
+    MealplanEntryType.DESSERT: "mdi:cupcake",
+    MealplanEntryType.DRINK: "mdi:glass-cocktail",
+    MealplanEntryType.SNACK: "mdi:cookie",
+}
+
 SERVICE_GET_MEALPLAN = "get_mealplan"
 SERVICE_GET_RECIPE = "get_recipe"
 SERVICE_GET_RECIPES = "get_recipes"
