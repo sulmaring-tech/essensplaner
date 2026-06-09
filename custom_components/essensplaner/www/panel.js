@@ -36,10 +36,8 @@ class PanelEssensplaner extends HTMLElement {
     this._inspirationResults = [];
     this._inspirationLoading = false;
     this._inspirationOpen = false;
-    this._dialogPane = "local";
-    this._dialogOnlineQuery = "";
-    this._dialogOnlineResults = [];
-    this._dialogOnlineLoading = false;
+    this._dialogShowAll = false;
+    this._onlinePreview = null;
     this._onlineImporting = false;
     this._dataLoaded = false;
     this._onClick = this._handleClick.bind(this);
@@ -80,7 +78,8 @@ class PanelEssensplaner extends HTMLElement {
       this._mode === "edit" ||
       !!this._dialog ||
       this._mealTimesOpen ||
-      this._inspirationOpen
+      this._inspirationOpen ||
+      !!this._onlinePreview
     );
   }
 
@@ -363,6 +362,33 @@ class PanelEssensplaner extends HTMLElement {
     return [...mealTags, ...other];
   }
 
+  _dialogRecipes() {
+    const mealType = this._dialog?.type;
+    const q = (this._dialogSearch || "").toLowerCase();
+    let list = this._recipes;
+    if (mealType && !this._dialogShowAll) {
+      list = list.filter((r) => (r.tags || []).includes(mealType));
+    }
+    if (!q) return list;
+    return list.filter((r) =>
+      [r.name, r.description, ...(r.tags || []), ...(r.categories || [])]
+        .join(" ")
+        .toLowerCase()
+        .includes(q)
+    );
+  }
+
+  _renderDialogPickList(recipes) {
+    if (!recipes.length) {
+      return `<p class="muted">Kein passendes Rezept gefunden.</p>`;
+    }
+    return recipes.map((r) => `
+      <button type="button" class="pick-item" data-a="plan-pick" data-id="${r.id}">
+        ${this._renderRecipeThumb(r, "xs")}
+        <span class="pick-name">${this._esc(r.name)}</span>
+      </button>`).join("");
+  }
+
   _plan(date, type) {
     return this._mealplan.find((m) => m.date === date && m.entry_type === type);
   }
@@ -518,53 +544,61 @@ class PanelEssensplaner extends HTMLElement {
     return this._renderRecipeThumb(null, "xs");
   }
 
-  _renderOnlineResults(results, assign = false) {
+  _renderOnlineResults(results) {
     if (!results?.length) {
       return `<p class="muted">Keine Treffer – anderen Suchbegriff probieren.</p>`;
     }
     return results.map((r) => `
       <div class="online-item">
-        ${this._renderOnlineThumb(r)}
-        <div class="online-body">
-          <strong>${this._esc(r.title)}</strong>
-          <span class="muted">Chefkoch</span>
-        </div>
-        <button type="button" class="btn primary sm" data-a="online-import" data-url="${this._esc(r.url)}" data-assign="${assign ? "1" : "0"}" ${this._onlineImporting ? "disabled" : ""}>
-          ${assign ? "Import & planen" : "Importieren"}
+        <button type="button" class="online-pick" data-a="online-preview" data-url="${this._esc(r.url)}">
+          ${this._renderOnlineThumb(r)}
+          <div class="online-body">
+            <strong>${this._esc(r.title)}</strong>
+            <span class="muted">Chefkoch · Vorschau öffnen</span>
+          </div>
+        </button>
+        <button type="button" class="btn primary sm" data-a="online-import" data-url="${this._esc(r.url)}" ${this._onlineImporting ? "disabled" : ""}>
+          Importieren
         </button>
       </div>`).join("");
   }
 
-  async _importFromOnline(url, assign = false) {
+  async _openOnlinePreview(url) {
+    const hit = this._inspirationResults.find((r) => r.url === url);
+    this._onlinePreview = {
+      url,
+      title: hit?.title || "",
+      image_url: hit?.image_url || "",
+      loading: true,
+    };
+    this._paint();
+    try {
+      const res = await this._hass.callWS({
+        type: "essensplaner/preview_recipe_url",
+        url,
+      });
+      this._onlinePreview = { url, recipe: res?.recipe, loading: false };
+    } catch (e) {
+      this._onlinePreview = {
+        url,
+        title: hit?.title || "",
+        image_url: hit?.image_url || "",
+        loading: false,
+        error: e.message || String(e),
+      };
+    }
+    this._paint();
+  }
+
+  async _importFromOnline(url) {
     if (!url || this._onlineImporting) return;
     this._onlineImporting = true;
     this._paint();
-    const dialog = this._dialog;
     try {
-      const res = await this._svc("import_recipe", { url }, true);
-      const recipe = res?.recipe || res;
-      let recipeId = recipe?.id;
-      if (recipeId && dialog?.type) {
-        const other = (recipe.tags || []).filter((t) => !MEAL_TAG_IDS.has(t));
-        await this._svc("update_recipe", {
-          recipe_id: recipeId,
-          tags: [...other, dialog.type],
-        }, true);
-      }
+      await this._svc("import_recipe", { url }, false);
       await this._load();
-      if (assign && dialog && recipeId) {
-        await this._svc("set_mealplan", {
-          date: dialog.date,
-          entry_type: dialog.type,
-          recipe_id: recipeId,
-        }, false);
-        this._dialog = null;
-        this._dialogPane = "local";
-        this._notify("Rezept importiert und geplant");
-        await this._reloadPlan();
-      } else {
-        this._notify("Rezept importiert");
-      }
+      this._onlinePreview = null;
+      this._notify("Rezept importiert");
     } catch (e) {
       this._notify("Import fehlgeschlagen: " + (e.message || e), true);
     } finally {
@@ -717,24 +751,13 @@ class PanelEssensplaner extends HTMLElement {
       this._inspirationQuery = el.value;
       return;
     }
-    if (el.id === "dialog-online-query") {
-      this._dialogOnlineQuery = el.value;
-    }
   }
 
   _paintDialogSearch() {
     if (!this._dialog) return;
-    const q = (this._dialogSearch || "").toLowerCase();
     const list = this.querySelector(".pick-list");
     if (!list) return;
-    const picks = this._recipes.filter((r) => !q || r.name.toLowerCase().includes(q));
-    list.innerHTML = picks.length
-      ? picks.map((r) => `
-          <button type="button" class="pick-item" data-a="plan-pick" data-id="${r.id}">
-            ${this._renderRecipeThumb(r, "xs")}
-            <span class="pick-name">${this._esc(r.name)}</span>
-          </button>`).join("")
-      : `<p class="muted">Kein Rezept gefunden</p>`;
+    list.innerHTML = this._renderDialogPickList(this._dialogRecipes());
   }
 
   async _handleChange(ev) {
@@ -754,12 +777,13 @@ class PanelEssensplaner extends HTMLElement {
       const hitOverlay = ev.composedPath().some(
         (el) => el instanceof HTMLElement && el.classList?.contains("overlay")
       );
-      if (hitOverlay && this._dialog) {
+      if (hitOverlay && (this._dialog || this._onlinePreview)) {
         const onBackdrop = ev.composedPath().some(
           (el) => el instanceof HTMLElement && el.classList?.contains("overlay") && el === ev.target
         );
         if (onBackdrop) {
           this._dialog = null;
+          this._onlinePreview = null;
           this._paint();
         }
       }
@@ -805,9 +829,12 @@ class PanelEssensplaner extends HTMLElement {
     if (a === "plan-cell") {
       this._dialog = { date: t.dataset.date, type: t.dataset.type, label: this._mealLabel(t.dataset.type) };
       this._dialogSearch = "";
-      this._dialogPane = "local";
-      this._dialogOnlineQuery = "";
-      this._dialogOnlineResults = [];
+      this._dialogShowAll = false;
+      this._paint();
+      return;
+    }
+    if (a === "dialog-show-all") {
+      this._dialogShowAll = !this._dialogShowAll;
       this._paint();
       return;
     }
@@ -829,26 +856,17 @@ class PanelEssensplaner extends HTMLElement {
       }
       return;
     }
-    if (a === "dialog-tab") {
-      this._dialogPane = t.dataset.pane || "local";
-      this._paint();
+    if (a === "online-preview") {
+      await this._openOnlinePreview(t.dataset.url);
       return;
     }
-    if (a === "dialog-online-search") {
-      this._dialogOnlineLoading = true;
+    if (a === "online-preview-close") {
+      this._onlinePreview = null;
       this._paint();
-      try {
-        this._dialogOnlineResults = await this._searchRecipesOnline(this._dialogOnlineQuery);
-      } catch (e) {
-        this._notify("Suche fehlgeschlagen: " + (e.message || e), true);
-      } finally {
-        this._dialogOnlineLoading = false;
-        this._paint();
-      }
       return;
     }
     if (a === "online-import") {
-      await this._importFromOnline(t.dataset.url, t.dataset.assign === "1");
+      await this._importFromOnline(t.dataset.url);
       return;
     }
     if (a === "plan-pick") { await this._assignPlan(t.dataset.id); return; }
@@ -1007,6 +1025,7 @@ class PanelEssensplaner extends HTMLElement {
           </button>`
         ).join("")}
       </div>
+      ${this._renderInspirationSection()}
       <div class="split">
         <div class="recipe-list">${cards}</div>
         <div class="recipe-detail">${this._renderRecipeDetail()}</div>
@@ -1053,13 +1072,13 @@ class PanelEssensplaner extends HTMLElement {
           <ha-icon icon="${this._inspirationOpen ? "mdi:chevron-up" : "mdi:chevron-down"}"></ha-icon>
         </button>
         ${this._inspirationOpen ? `
-          <p class="muted times-hint">Online auf Chefkoch suchen – ohne URL. Rezepte werden in deine Sammlung importiert.</p>
+          <p class="muted times-hint">Online auf Chefkoch suchen. Rezept anklicken für Vorschau oder direkt importieren.</p>
           <div class="inspiration-search">
             <input class="inp grow" id="inspiration-query" placeholder="z. B. schnelles Abendessen, Linsensuppe, vegetarisch…" value="${this._esc(this._inspirationQuery)}">
             <button type="button" class="btn primary" data-a="inspiration-search" ${this._inspirationLoading ? "disabled" : ""}>Suchen</button>
           </div>
           ${this._inspirationLoading ? `<div class="loading compact"><ha-circular-progress active></ha-circular-progress></div>` : ""}
-          <div class="online-list">${this._renderOnlineResults(this._inspirationResults, false)}</div>` : ""}
+          <div class="online-list">${this._renderOnlineResults(this._inspirationResults)}</div>` : ""}
       </div>`;
   }
 
@@ -1088,7 +1107,6 @@ class PanelEssensplaner extends HTMLElement {
 
     return `
       ${this._renderMealTimesSection()}
-      ${this._renderInspirationSection()}
       <div class="week-nav">
         <button class="btn icon" data-a="week-prev"><ha-icon icon="mdi:chevron-left"></ha-icon></button>
         <span class="week-label">${weekLabel}</span>
@@ -1108,18 +1126,13 @@ class PanelEssensplaner extends HTMLElement {
     const { date, type, label } = this._dialog;
     const { wd, dm } = this._fmtDay(date);
     const current = this._planName(this._plan(date, type));
-    const q = (this._dialogSearch || "").toLowerCase();
-    const picks = this._recipes.filter((r) => !q || r.name.toLowerCase().includes(q));
+    const picks = this._dialogRecipes();
+    const list = this._renderDialogPickList(picks);
+    const filterHint = !this._dialogShowAll
+      ? `<p class="muted dialog-hint">Zeigt Rezepte mit Tag <strong>${this._esc(label)}</strong>.</p>`
+      : `<p class="muted dialog-hint">Alle Rezepte werden angezeigt.</p>`;
+    const filterToggle = `<button type="button" class="btn linkish" data-a="dialog-show-all">${this._dialogShowAll ? "Nur passende Tags" : "Alle Rezepte zeigen"}</button>`;
 
-    const list = picks.length
-      ? picks.map((r) => `
-          <button type="button" class="pick-item" data-a="plan-pick" data-id="${r.id}">
-            ${this._renderRecipeThumb(r, "xs")}
-            <span class="pick-name">${this._esc(r.name)}</span>
-          </button>`).join("")
-      : `<p class="muted">Kein Rezept gefunden</p>`;
-
-    const localPane = this._dialogPane === "local";
     return `
       <div class="overlay">
         <div class="dialog dialog-wide">
@@ -1129,23 +1142,93 @@ class PanelEssensplaner extends HTMLElement {
             <button type="button" class="btn icon close" data-a="dialog-close" title="Schließen">✕</button>
           </div>
           ${current ? `<div class="current-plan">Aktuell: <strong>${this._esc(current)}</strong></div>` : ""}
-          <div class="dialog-tabs">
-            <button type="button" class="dialog-tab ${localPane ? "on" : ""}" data-a="dialog-tab" data-pane="local">Meine Rezepte</button>
-            <button type="button" class="dialog-tab ${!localPane ? "on" : ""}" data-a="dialog-tab" data-pane="online">Online suchen</button>
+          ${filterHint}
+          <div class="dialog-filter-row">
+            <input class="inp" id="dialog-search" placeholder="In Vorschlägen suchen…" value="${this._esc(this._dialogSearch)}">
+            ${filterToggle}
           </div>
-          ${localPane ? `
-            <input class="inp" id="dialog-search" placeholder="Rezept wählen…" value="${this._esc(this._dialogSearch)}">
-            <div class="pick-list">${list}</div>` : `
-            <p class="muted dialog-hint">Chefkoch durchsuchen und direkt importieren &amp; planen.</p>
-            <div class="inspiration-search">
-              <input class="inp grow" id="dialog-online-query" placeholder="Was soll es heute geben?" value="${this._esc(this._dialogOnlineQuery)}">
-              <button type="button" class="btn primary" data-a="dialog-online-search" ${this._dialogOnlineLoading ? "disabled" : ""}>Suchen</button>
-            </div>
-            ${this._dialogOnlineLoading ? `<div class="loading compact"><ha-circular-progress active></ha-circular-progress></div>` : ""}
-            <div class="online-list dialog-online">${this._renderOnlineResults(this._dialogOnlineResults, true)}</div>`}
+          <div class="pick-list">${list}</div>
           <div class="btn-row">
-            ${current && localPane ? `<button type="button" class="btn danger" data-a="plan-clear">Entfernen</button>` : ""}
+            ${current ? `<button type="button" class="btn danger" data-a="plan-clear">Entfernen</button>` : ""}
             <button type="button" class="btn" data-a="dialog-close">Abbrechen</button>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  _renderOnlinePreview() {
+    if (!this._onlinePreview) return "";
+    const { url, recipe, loading, error, title, image_url } = this._onlinePreview;
+    if (loading) {
+      const thumb = image_url
+        ? `<img class="recipe-thumb hero" src="${this._esc(image_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">`
+        : this._renderRecipeThumb(null, "hero");
+      return `
+        <div class="overlay">
+          <div class="dialog dialog-preview">
+            <div class="dialog-head">
+              <h3>${this._esc(title || "Rezept-Vorschau")}</h3>
+              <button type="button" class="btn icon close" data-a="online-preview-close" title="Schließen">✕</button>
+            </div>
+            <div class="preview-loading">
+              ${thumb}
+              <div class="loading compact"><ha-circular-progress active></ha-circular-progress></div>
+              <p class="muted">Rezept wird geladen…</p>
+            </div>
+          </div>
+        </div>`;
+    }
+    if (error || !recipe) {
+      return `
+        <div class="overlay">
+          <div class="dialog dialog-preview">
+            <div class="dialog-head">
+              <h3>${this._esc(title || "Rezept-Vorschau")}</h3>
+              <button type="button" class="btn icon close" data-a="online-preview-close" title="Schließen">✕</button>
+            </div>
+            <p class="alert">Vorschau fehlgeschlagen: ${this._esc(error || "Unbekannter Fehler")}</p>
+            <div class="btn-row">
+              <a class="btn" href="${this._esc(url)}" target="_blank" rel="noopener">Auf Chefkoch öffnen</a>
+              <button type="button" class="btn" data-a="online-preview-close">Schließen</button>
+            </div>
+          </div>
+        </div>`;
+    }
+    const ings = (recipe.ingredients || [])
+      .map((i) => `<li>${this._esc(this._formatIngredient(i))}</li>`)
+      .join("");
+    const steps = (recipe.instructions || [])
+      .map((s, idx) => `<li><span class="step-num">${idx + 1}</span><span class="step-text">${this._esc(s)}</span></li>`)
+      .join("");
+    const source = recipe.source_url || url;
+    return `
+      <div class="overlay">
+        <div class="dialog dialog-preview">
+          <div class="dialog-head">
+            <h3>${this._esc(recipe.name)}</h3>
+            <button type="button" class="btn icon close" data-a="online-preview-close" title="Schließen">✕</button>
+          </div>
+          <article class="preview-card">
+            <div class="detail-hero">${this._renderRecipeThumb(recipe, "hero")}</div>
+            <div class="detail-body">
+              ${this._renderMetaChips(recipe)}
+              ${recipe.description ? `<p class="desc">${this._esc(recipe.description)}</p>` : ""}
+              <a class="source-link" href="${this._esc(source)}" target="_blank" rel="noopener">Originalrezept auf Chefkoch</a>
+              <div class="detail-sections preview-sections">
+                <section class="detail-panel">
+                  <h4><ha-icon icon="mdi:basket"></ha-icon> Zutaten</h4>
+                  <ul class="ingredient-list">${ings || "<li class='muted'>Keine Zutaten</li>"}</ul>
+                </section>
+                <section class="detail-panel">
+                  <h4><ha-icon icon="mdi:pot-steam"></ha-icon> Zubereitung</h4>
+                  <ol class="step-list">${steps || "<li class='muted'>Keine Schritte</li>"}</ol>
+                </section>
+              </div>
+            </div>
+          </article>
+          <div class="btn-row">
+            <button type="button" class="btn primary" data-a="online-import" data-url="${this._esc(url)}" ${this._onlineImporting ? "disabled" : ""}>In Sammlung importieren</button>
+            <button type="button" class="btn" data-a="online-preview-close">Schließen</button>
           </div>
         </div>
       </div>`;
@@ -1187,7 +1270,8 @@ class PanelEssensplaner extends HTMLElement {
       </nav>
       <main class="content">${body}</main>
       ${toast}
-      ${this._renderDialog()}`;
+      ${this._renderDialog()}
+      ${this._renderOnlinePreview()}`;
   }
 }
 
@@ -1399,8 +1483,23 @@ PanelEssensplaner._CSS = `
     border: 1px solid var(--divider-color, #eee); border-radius: 10px;
     background: var(--secondary-background-color, #fafafa);
   }
+  .online-pick {
+    flex: 1; min-width: 0; display: flex; gap: 10px; align-items: center;
+    border: none; background: none; cursor: pointer; text-align: left;
+    padding: 0; font: inherit; color: inherit;
+  }
+  .online-pick:hover .online-body strong { color: var(--primary-color); }
   .online-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .online-body strong { font-size: 0.9rem; line-height: 1.3; }
+  .dialog-preview {
+    width: min(920px, 96vw); max-height: 92vh; overflow-y: auto;
+  }
+  .preview-loading {
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
+    padding: 12px 0 20px;
+  }
+  .preview-card .detail-hero { margin-bottom: 12px; }
+  .preview-sections { margin-top: 16px; }
   .btn.sm { padding: 7px 12px; font-size: 0.82rem; }
   .loading.compact { padding: 16px; text-align: center; }
   .dialog-wide { max-width: 520px; }
@@ -1411,6 +1510,13 @@ PanelEssensplaner._CSS = `
   }
   .dialog-tab.on { border-color: var(--primary-color); background: color-mix(in srgb, var(--primary-color) 10%, transparent); color: var(--primary-color); font-weight: 500; }
   .dialog-hint { margin: 0 0 8px; font-size: 0.85rem; }
+  .dialog-filter-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+  .dialog-filter-row .inp { flex: 1; min-width: 180px; }
+  .btn.linkish {
+    padding: 0; border: none; background: none; color: var(--primary-color);
+    cursor: pointer; font: inherit; font-size: 0.85rem; text-decoration: underline;
+    white-space: nowrap;
+  }
   .times-toggle {
     display: flex; align-items: center; gap: 8px; width: 100%;
     padding: 0; border: none; background: none; cursor: pointer;

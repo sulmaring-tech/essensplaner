@@ -76,18 +76,27 @@ def _scrape_recipe(url: str, html: str) -> Recipe:
     )
 
 
-async def async_import_recipe_from_url(
-    hass: HomeAssistant, url: str, include_tags: bool = False
-) -> Recipe:
-    """Fetch and scrape a recipe from URL."""
+async def _async_fetch_recipe_html(hass: HomeAssistant, url: str) -> str:
+    """Download recipe page HTML."""
     from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
     session = async_get_clientsession(hass)
     async with session.get(url) as response:
         response.raise_for_status()
-        html = await response.text()
+        return await response.text()
 
-    recipe = await hass.async_add_executor_job(_scrape_recipe, url, html)
+
+async def async_preview_recipe_from_url(hass: HomeAssistant, url: str) -> Recipe:
+    """Fetch and scrape a recipe from URL without saving."""
+    html = await _async_fetch_recipe_html(hass, url)
+    return await hass.async_add_executor_job(_scrape_recipe, url, html)
+
+
+async def async_import_recipe_from_url(
+    hass: HomeAssistant, url: str, include_tags: bool = False
+) -> Recipe:
+    """Fetch and scrape a recipe from URL."""
+    recipe = await async_preview_recipe_from_url(hass, url)
 
     if include_tags and recipe.categories:
         recipe.tags = list(recipe.categories)

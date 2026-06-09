@@ -13,6 +13,7 @@ from homeassistant.core import HomeAssistant, callback
 from .const import DOMAIN, LOGGER, PANEL_JS_URL, PANEL_STATIC_PATH, PANEL_URL_PATH
 from .meal_times import meal_times_to_api, merge_meal_times_from_api
 from .online_search import async_search_recipes_online
+from .recipe_importer import async_preview_recipe_from_url
 
 _PANEL_REGISTERED = "panel_registered"
 _WS_REGISTERED = "ws_registered"
@@ -131,10 +132,34 @@ def _async_register_ws(hass: HomeAssistant) -> None:
             return
         connection.send_result(msg["id"], {"results": results})
 
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): f"{DOMAIN}/preview_recipe_url",
+            vol.Required("url"): str,
+        }
+    )
+    @websocket_api.async_response
+    async def ws_preview_recipe_url(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict,
+    ) -> None:
+        url = msg["url"].strip()
+        if not url:
+            connection.send_error(msg["id"], "invalid_url", "URL fehlt")
+            return
+        try:
+            recipe = await async_preview_recipe_from_url(hass, url)
+        except Exception as err:
+            connection.send_error(msg["id"], "preview_failed", str(err))
+            return
+        connection.send_result(msg["id"], {"recipe": recipe.to_dict()})
+
     websocket_api.async_register_command(hass, ws_config_entries)
     websocket_api.async_register_command(hass, ws_get_meal_times)
     websocket_api.async_register_command(hass, ws_set_meal_times)
     websocket_api.async_register_command(hass, ws_search_recipes_online)
+    websocket_api.async_register_command(hass, ws_preview_recipe_url)
     hass.data[DOMAIN][_WS_REGISTERED] = True
 
 
