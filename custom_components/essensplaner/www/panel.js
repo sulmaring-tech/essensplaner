@@ -249,6 +249,13 @@ class PanelEssensplaner extends HTMLElement {
     return d;
   }
 
+  _fmtIsoLocal(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+
   _weekRange() {
     const start = this._today();
     start.setDate(start.getDate() + this._weekOffset * 7);
@@ -256,17 +263,18 @@ class PanelEssensplaner extends HTMLElement {
     const day = monday.getDay();
     const diff = day === 0 ? -6 : 1 - day;
     monday.setDate(monday.getDate() + diff);
-    const end = new Date(monday);
-    end.setDate(end.getDate() + 6);
+    const sunday = new Date(monday);
+    sunday.setDate(sunday.getDate() + 6);
     return {
-      start: monday.toISOString().slice(0, 10),
-      end: end.toISOString().slice(0, 10),
+      start: this._fmtIsoLocal(monday),
+      end: this._fmtIsoLocal(sunday),
       days: Array.from({ length: 7 }, (_, i) => {
         const d = new Date(monday);
         d.setDate(d.getDate() + i);
-        return d.toISOString().slice(0, 10);
+        return this._fmtIsoLocal(d);
       }),
-      monday, end,
+      monday,
+      sunday,
     };
   }
 
@@ -274,7 +282,7 @@ class PanelEssensplaner extends HTMLElement {
     const d = new Date(iso + "T12:00:00");
     const wd = d.toLocaleDateString("de-DE", { weekday: "long" });
     const dm = d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" });
-    const today = new Date().toISOString().slice(0, 10);
+    const today = this._fmtIsoLocal(this._today());
     return { wd, dm, today: iso === today };
   }
 
@@ -589,8 +597,8 @@ class PanelEssensplaner extends HTMLElement {
   }
 
   _renderPlanTab() {
-    const { days, monday, end } = this._weekRange();
-    const weekLabel = `${monday.toLocaleDateString("de-DE", { day: "2-digit", month: "short" })} – ${end.toLocaleDateString("de-DE", { day: "2-digit", month: "short", year: "numeric" })}`;
+    const { days, monday, sunday } = this._weekRange();
+    const weekLabel = `${monday.toLocaleDateString("de-DE", { day: "2-digit", month: "short" })} – ${sunday.toLocaleDateString("de-DE", { day: "2-digit", month: "short", year: "numeric" })}`;
 
     const head = MEALS.map((m) => `<th><ha-icon icon="${m.icon}"></ha-icon> ${m.label}</th>`).join("");
     const rows = days.map((day) => {
