@@ -68,7 +68,7 @@ async def async_setup_entry(
             added_lists.update(new_lists)
         if removed_lists:
             _async_delete_entities(removed_lists)
-            added_lists -= removed_lists
+            added_lists.difference_update(removed_lists)
 
     coordinator.async_add_listener(_async_entity_listener)
     _async_entity_listener()
