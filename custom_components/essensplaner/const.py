@@ -76,7 +76,9 @@ class MealplanEntryType(StrEnum):
     BREAKFAST = "breakfast"
     LUNCH = "lunch"
     DINNER = "dinner"
-    SIDE = "side"
+    SIDE = "side"  # legacy – migrated to side_lunch / side_dinner
+    SIDE_LUNCH = "side_lunch"
+    SIDE_DINNER = "side_dinner"
     DESSERT = "dessert"
     DRINK = "drink"
     SNACK = "snack"
@@ -89,7 +91,18 @@ DEFAULT_VISIBLE_MEAL_TYPES: tuple[str, ...] = (
 )
 
 
-MEALPLAN_ENTRY_TYPES = list(MealplanEntryType)
+MEALPLAN_ENTRY_TYPES = [
+    MealplanEntryType.BREAKFAST,
+    MealplanEntryType.LUNCH,
+    MealplanEntryType.DINNER,
+    MealplanEntryType.SIDE_LUNCH,
+    MealplanEntryType.SIDE_DINNER,
+    MealplanEntryType.DESSERT,
+    MealplanEntryType.DRINK,
+    MealplanEntryType.SNACK,
+]
+
+LEGACY_MEALPLAN_ENTRY_TYPES = {MealplanEntryType.SIDE}
 
 DASHBOARD_MEAL_TYPES: tuple[MealplanEntryType, ...] = (
     MealplanEntryType.BREAKFAST,
@@ -102,6 +115,8 @@ MEAL_TYPE_LABELS: dict[str, str] = {
     MealplanEntryType.LUNCH: "Mittagessen",
     MealplanEntryType.DINNER: "Abendessen",
     MealplanEntryType.SIDE: "Beilage",
+    MealplanEntryType.SIDE_LUNCH: "Beilage (Mittag)",
+    MealplanEntryType.SIDE_DINNER: "Beilage (Abend)",
     MealplanEntryType.DESSERT: "Dessert",
     MealplanEntryType.DRINK: "Getränk",
     MealplanEntryType.SNACK: "Snack",
@@ -112,6 +127,8 @@ MEAL_TYPE_ICONS: dict[str, str] = {
     MealplanEntryType.LUNCH: "mdi:silverware-fork-knife",
     MealplanEntryType.DINNER: "mdi:food-turkey",
     MealplanEntryType.SIDE: "mdi:food-variant",
+    MealplanEntryType.SIDE_LUNCH: "mdi:food-variant",
+    MealplanEntryType.SIDE_DINNER: "mdi:food-variant",
     MealplanEntryType.DESSERT: "mdi:cupcake",
     MealplanEntryType.DRINK: "mdi:glass-cocktail",
     MealplanEntryType.SNACK: "mdi:cookie",

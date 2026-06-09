@@ -4,13 +4,24 @@ const ALL_MEALS = [
   { id: "breakfast", label: "Frühstück", icon: "mdi:coffee" },
   { id: "lunch", label: "Mittagessen", icon: "mdi:silverware-fork-knife" },
   { id: "dinner", label: "Abendessen", icon: "mdi:food-turkey" },
+  { id: "side_lunch", label: "Beilage (Mittag)", icon: "mdi:food-variant" },
+  { id: "side_dinner", label: "Beilage (Abend)", icon: "mdi:food-variant" },
+  { id: "dessert", label: "Dessert", icon: "mdi:cupcake" },
+  { id: "drink", label: "Getränk", icon: "mdi:glass-cocktail" },
+  { id: "snack", label: "Snack", icon: "mdi:cookie" },
+];
+
+const RECIPE_MEAL_TAGS = [
+  { id: "breakfast", label: "Frühstück", icon: "mdi:coffee" },
+  { id: "lunch", label: "Mittagessen", icon: "mdi:silverware-fork-knife" },
+  { id: "dinner", label: "Abendessen", icon: "mdi:food-turkey" },
   { id: "side", label: "Beilage", icon: "mdi:food-variant" },
   { id: "dessert", label: "Dessert", icon: "mdi:cupcake" },
   { id: "drink", label: "Getränk", icon: "mdi:glass-cocktail" },
   { id: "snack", label: "Snack", icon: "mdi:cookie" },
 ];
 
-const MEAL_TAG_IDS = new Set(ALL_MEALS.map((m) => m.id));
+const MEAL_TAG_IDS = new Set(RECIPE_MEAL_TAGS.map((m) => m.id));
 const DEFAULT_VISIBLE_MEALS = ["breakfast", "lunch", "dinner"];
 
 class PanelEssensplaner extends HTMLElement {
@@ -341,6 +352,11 @@ class PanelEssensplaner extends HTMLElement {
     };
   }
 
+  _recipeTagForPlanType(mealType) {
+    if (mealType === "side_lunch" || mealType === "side_dinner") return "side";
+    return mealType;
+  }
+
   _visibleMeals() {
     const ids = this._visibleMealTypes?.length ? this._visibleMealTypes : DEFAULT_VISIBLE_MEALS;
     return ALL_MEALS.filter((m) => ids.includes(m.id));
@@ -363,7 +379,12 @@ class PanelEssensplaner extends HTMLElement {
     this._suggestMealTagsOnImport = res.suggest_meal_tags_on_import !== false;
     this._recipeLastPlanned = res.recipe_last_planned || {};
     if (this._mealFilter && !this._visibleMealTypes.includes(this._mealFilter)) {
-      this._mealFilter = null;
+      if (
+        this._mealFilter !== "side" ||
+        !this._visibleMealTypes.some((id) => id === "side_lunch" || id === "side_dinner")
+      ) {
+        this._mealFilter = null;
+      }
     }
   }
 
@@ -402,7 +423,8 @@ class PanelEssensplaner extends HTMLElement {
   _filtered() {
     let list = this._recipes;
     if (this._mealFilter) {
-      list = list.filter((r) => (r.tags || []).includes(this._mealFilter));
+      const tag = this._recipeTagForPlanType(this._mealFilter);
+      list = list.filter((r) => (r.tags || []).includes(tag));
     }
     if (this._search) {
       const q = this._search.toLowerCase();
@@ -425,7 +447,7 @@ class PanelEssensplaner extends HTMLElement {
   }
 
   _mealTagLabel(id) {
-    return ALL_MEALS.find((m) => m.id === id)?.label || id;
+    return ALL_MEALS.find((m) => m.id === id)?.label || RECIPE_MEAL_TAGS.find((m) => m.id === id)?.label || id;
   }
 
   _instructionsToText(steps) {
@@ -440,7 +462,7 @@ class PanelEssensplaner extends HTMLElement {
   }
 
   _selectedMealTagsFromForm() {
-    return ALL_MEALS.filter((m) => this.querySelector(`[name="meal-${m.id}"]`)?.checked).map(
+    return RECIPE_MEAL_TAGS.filter((m) => this.querySelector(`[name="meal-${m.id}"]`)?.checked).map(
       (m) => m.id
     );
   }
@@ -457,7 +479,8 @@ class PanelEssensplaner extends HTMLElement {
     const q = (this._dialogSearch || "").toLowerCase();
     let list = this._recipes;
     if (mealType && !this._dialogShowAll) {
-      list = list.filter((r) => (r.tags || []).includes(mealType));
+      const tag = this._recipeTagForPlanType(mealType);
+      list = list.filter((r) => (r.tags || []).includes(tag));
     }
     if (!q) return list;
     return list.filter((r) =>
@@ -539,7 +562,7 @@ class PanelEssensplaner extends HTMLElement {
   }
 
   _mealLabel(id) {
-    return ALL_MEALS.find((m) => m.id === id)?.label || id;
+    return ALL_MEALS.find((m) => m.id === id)?.label || RECIPE_MEAL_TAGS.find((m) => m.id === id)?.label || id;
   }
 
   _toTimeInput(value) {
@@ -1236,7 +1259,7 @@ class PanelEssensplaner extends HTMLElement {
       if (this._formDraft.servings !== undefined) data.servings = this._formDraft.servings;
     }
     const previewUrl = data.image_url?.trim();
-    const mealChecks = ALL_MEALS.map(
+    const mealChecks = RECIPE_MEAL_TAGS.map(
       (m) => `
         <label class="meal-check">
           <input type="checkbox" name="meal-${m.id}" ${data.mealTags.includes(m.id) ? "checked" : ""}>
@@ -1437,6 +1460,22 @@ class PanelEssensplaner extends HTMLElement {
       </label>`;
   }
 
+  _mealFilterOptions() {
+    const filters = [];
+    let sideAdded = false;
+    for (const meal of this._visibleMeals()) {
+      if (meal.id === "side_lunch" || meal.id === "side_dinner") {
+        if (!sideAdded) {
+          filters.push({ id: "side", label: "Beilage", icon: "mdi:food-variant" });
+          sideAdded = true;
+        }
+        continue;
+      }
+      filters.push(meal);
+    }
+    return filters;
+  }
+
   _renderRecipesTab() {
     const list = this._filtered();
     const cols = this._normalizeRecipesPerRow(this._recipesPerRow);
@@ -1463,7 +1502,7 @@ class PanelEssensplaner extends HTMLElement {
       </div>
       <div class="meal-filters">
         <button type="button" class="filter-chip ${!this._mealFilter ? "on" : ""}" data-a="filter-meal" data-meal="">Alle</button>
-        ${this._visibleMeals().map(
+        ${this._mealFilterOptions().map(
           (m) => `
           <button type="button" class="filter-chip ${this._mealFilter === m.id ? "on" : ""}" data-a="filter-meal" data-meal="${m.id}">
             <ha-icon icon="${m.icon}"></ha-icon>${m.label}

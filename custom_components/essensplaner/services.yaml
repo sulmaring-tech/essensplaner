@@ -140,6 +140,8 @@ set_mealplan:
             - breakfast
             - lunch
             - dinner
+            - side_lunch
+            - side_dinner
             - side
             - dessert
             - drink
@@ -181,6 +183,8 @@ set_random_mealplan:
             - breakfast
             - lunch
             - dinner
+            - side_lunch
+            - side_dinner
             - side
             - dessert
             - drink
@@ -205,6 +209,8 @@ clear_mealplan:
             - breakfast
             - lunch
             - dinner
+            - side_lunch
+            - side_dinner
             - side
             - dessert
             - drink

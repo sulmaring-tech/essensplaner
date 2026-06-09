@@ -11,6 +11,7 @@ from .const import (
     MAX_RECIPES_PER_ROW,
     MEALPLAN_ENTRY_TYPES,
     MIN_RECIPES_PER_ROW,
+    MealplanEntryType,
     OPTION_DEFAULT_WEEK,
     OPTION_RECIPES_PER_ROW,
     OPTION_RECIPE_SORT,
@@ -61,6 +62,10 @@ def _visible_meal_types(options: dict[str, Any]) -> list[str]:
     if not isinstance(raw, list):
         return list(DEFAULT_VISIBLE_MEAL_TYPES)
     visible = [entry_type for entry_type in raw if entry_type in MEALPLAN_ENTRY_TYPES]
+    if MealplanEntryType.SIDE in raw:
+        for side_type in (MealplanEntryType.SIDE_LUNCH, MealplanEntryType.SIDE_DINNER):
+            if side_type not in visible:
+                visible.append(side_type)
     return visible or list(DEFAULT_VISIBLE_MEAL_TYPES)
 
 
@@ -134,9 +139,10 @@ def merge_panel_options(
         )
 
     if OPTION_VISIBLE_MEAL_TYPES in updates:
-        options[OPTION_VISIBLE_MEAL_TYPES] = _visible_meal_types(
+        visible = _visible_meal_types(
             {OPTION_VISIBLE_MEAL_TYPES: updates[OPTION_VISIBLE_MEAL_TYPES]}
         )
+        options[OPTION_VISIBLE_MEAL_TYPES] = visible
 
     if OPTION_WEEK_START in updates:
         value = updates[OPTION_WEEK_START]

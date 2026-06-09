@@ -5,6 +5,8 @@
       "lunch": { "default": "mdi:food" },
       "dinner": { "default": "mdi:silverware-fork-knife" },
       "side": { "default": "mdi:food-variant" },
+      "side_lunch": { "default": "mdi:food-variant" },
+      "side_dinner": { "default": "mdi:food-variant" },
       "dessert": { "default": "mdi:cupcake" },
       "drink": { "default": "mdi:glass-cocktail" },
       "snack": { "default": "mdi:cookie" }

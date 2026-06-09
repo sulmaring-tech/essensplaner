@@ -16,6 +16,7 @@ from .const import (
     OPTION_DEFAULT_SHOPPING_LIST_ID,
     STORAGE_KEY,
     STORAGE_VERSION,
+    MealplanEntryType,
 )
 from .shopping_targets import TARGET_ESSENSPLANER, parse_encoded_target
 from .models import (
@@ -61,6 +62,8 @@ class EssensplanerStore:
         else:
             self._data = self._create_default_data()
             await self._async_save()
+        if self._migrate_legacy_side_entries():
+            await self._async_save()
         if not self._data.shopping_lists:
             self._data.shopping_lists.update(self._create_default_data().shopping_lists)
             await self._async_save()
@@ -70,6 +73,15 @@ class EssensplanerStore:
         """Ensure at least one shopping list exists in memory."""
         if not self._data.shopping_lists:
             self._data.shopping_lists.update(self._create_default_data().shopping_lists)
+
+    def _migrate_legacy_side_entries(self) -> bool:
+        """Migrate legacy side meal plan entries to side_lunch."""
+        migrated = False
+        for mealplan in self._data.mealplans:
+            if mealplan.entry_type == MealplanEntryType.SIDE:
+                mealplan.entry_type = MealplanEntryType.SIDE_LUNCH
+                migrated = True
+        return migrated
 
     def _create_default_data(self) -> EssensplanerData:
         """Create default household data."""

@@ -44,6 +44,7 @@ from .const import (
     ATTR_URL,
     DOMAIN,
     MEALPLAN_ENTRY_TYPES,
+    MealplanEntryType,
     SERVICE_ADD_RECIPE_TO_SHOPPING_LIST,
     SERVICE_CREATE_RECIPE,
     SERVICE_DELETE_RECIPE,
@@ -64,7 +65,7 @@ from .const import (
     SERVICE_UPDATE_RECIPE,
 )
 from .coordinator import EssensplanerConfigEntry
-from .meal_times import format_time_value, resolve_meal_slot_times
+from .meal_times import format_time_value, normalize_mealplan_entry_type, resolve_meal_slot_times
 from .models import Ingredient, MealplanEntry, Recipe
 from .online_search import async_search_recipes_online
 from .panel_options import suggest_meal_tags_on_import_enabled
@@ -74,6 +75,8 @@ from .recipe_importer import (
     parse_ingredient_lines,
 )
 from .utils import generate_id, unique_slug
+
+SERVICE_MEALPLAN_ENTRY_TYPES = [*MEALPLAN_ENTRY_TYPES, MealplanEntryType.SIDE]
 
 SERVICE_GET_MEALPLAN_SCHEMA = vol.Schema(
     {
@@ -131,7 +134,7 @@ SERVICE_SET_RANDOM_MEALPLAN_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_CONFIG_ENTRY_ID): str,
         vol.Required(ATTR_DATE): cv.date,
-        vol.Required(ATTR_ENTRY_TYPE): vol.In(MEALPLAN_ENTRY_TYPES),
+        vol.Required(ATTR_ENTRY_TYPE): vol.In(SERVICE_MEALPLAN_ENTRY_TYPES),
     }
 )
 
@@ -145,7 +148,7 @@ SERVICE_SET_MEALPLAN_SCHEMA = vol.Any(
         {
             vol.Required(ATTR_CONFIG_ENTRY_ID): str,
             vol.Required(ATTR_DATE): cv.date,
-            vol.Required(ATTR_ENTRY_TYPE): vol.In(MEALPLAN_ENTRY_TYPES),
+            vol.Required(ATTR_ENTRY_TYPE): vol.In(SERVICE_MEALPLAN_ENTRY_TYPES),
             vol.Required(ATTR_RECIPE_ID): str,
             **_MEALPLAN_TIME_SCHEMA,
         }
@@ -154,7 +157,7 @@ SERVICE_SET_MEALPLAN_SCHEMA = vol.Any(
         {
             vol.Required(ATTR_CONFIG_ENTRY_ID): str,
             vol.Required(ATTR_DATE): cv.date,
-            vol.Required(ATTR_ENTRY_TYPE): vol.In(MEALPLAN_ENTRY_TYPES),
+            vol.Required(ATTR_ENTRY_TYPE): vol.In(SERVICE_MEALPLAN_ENTRY_TYPES),
             vol.Required(ATTR_NOTE_TITLE): str,
             vol.Optional(ATTR_NOTE_TEXT): str,
             **_MEALPLAN_TIME_SCHEMA,
@@ -226,7 +229,7 @@ SERVICE_CLEAR_MEALPLAN_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_CONFIG_ENTRY_ID): str,
         vol.Required(ATTR_DATE): cv.date,
-        vol.Required(ATTR_ENTRY_TYPE): vol.In(MEALPLAN_ENTRY_TYPES),
+        vol.Required(ATTR_ENTRY_TYPE): vol.In(SERVICE_MEALPLAN_ENTRY_TYPES),
     }
 )
 
@@ -388,7 +391,7 @@ async def _async_set_mealplan(call: ServiceCall) -> ServiceResponse:
         start_time, end_time = _parse_mealplan_times(call)
         mealplan = await store.async_set_mealplan(
             call.data[ATTR_DATE],
-            call.data[ATTR_ENTRY_TYPE],
+            normalize_mealplan_entry_type(call.data[ATTR_ENTRY_TYPE]),
             recipe_id=call.data.get(ATTR_RECIPE_ID),
             note_title=call.data.get(ATTR_NOTE_TITLE),
             note_text=call.data.get(ATTR_NOTE_TEXT),
@@ -410,7 +413,7 @@ async def _async_clear_mealplan(call: ServiceCall) -> ServiceResponse:
     entry = _get_entry(call)
     await entry.runtime_data.store.async_clear_mealplan(
         call.data[ATTR_DATE],
-        call.data[ATTR_ENTRY_TYPE],
+        normalize_mealplan_entry_type(call.data[ATTR_ENTRY_TYPE]),
     )
     await _async_refresh_all(entry)
     return None
@@ -422,7 +425,8 @@ async def _async_set_random_mealplan(call: ServiceCall) -> ServiceResponse:
     store = entry.runtime_data.store
     try:
         mealplan = await store.async_set_random_mealplan(
-            call.data[ATTR_DATE], call.data[ATTR_ENTRY_TYPE]
+            call.data[ATTR_DATE],
+            normalize_mealplan_entry_type(call.data[ATTR_ENTRY_TYPE]),
         )
     except ValueError as err:
         raise ServiceValidationError(str(err)) from err

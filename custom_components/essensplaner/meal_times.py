@@ -14,7 +14,8 @@ DEFAULT_MEAL_TIMES: dict[str, tuple[str, str]] = {
     MealplanEntryType.BREAKFAST: ("07:00", "08:00"),
     MealplanEntryType.LUNCH: ("12:00", "13:00"),
     MealplanEntryType.DINNER: ("18:00", "19:30"),
-    MealplanEntryType.SIDE: ("12:00", "12:30"),
+    MealplanEntryType.SIDE_LUNCH: ("12:00", "12:30"),
+    MealplanEntryType.SIDE_DINNER: ("18:00", "18:30"),
     MealplanEntryType.DESSERT: ("19:30", "20:00"),
     MealplanEntryType.DRINK: ("10:00", "10:15"),
     MealplanEntryType.SNACK: ("15:00", "15:30"),
@@ -40,15 +41,43 @@ def format_time_value(value: str | time) -> str:
     return f"{hour:02d}:{minute:02d}"
 
 
+def _legacy_side_times(options: dict[str, Any]) -> tuple[str, str] | None:
+    """Return legacy side_start/side_end if present."""
+    start = options.get(meal_time_option_key(MealplanEntryType.SIDE, "start"))
+    end = options.get(meal_time_option_key(MealplanEntryType.SIDE, "end"))
+    if start is None or end is None:
+        return None
+    return format_time_value(start), format_time_value(end)
+
+
+def _slot_times(
+    options: dict[str, Any], entry_type: str
+) -> tuple[str, str]:
+    """Resolve configured start/end for a meal slot."""
+    default_start, default_end = DEFAULT_MEAL_TIMES[entry_type]
+    start = options.get(meal_time_option_key(entry_type, "start"))
+    end = options.get(meal_time_option_key(entry_type, "end"))
+    if start is not None and end is not None:
+        return format_time_value(start), format_time_value(end)
+    if entry_type == MealplanEntryType.SIDE_LUNCH:
+        legacy = _legacy_side_times(options)
+        if legacy:
+            return legacy
+    return default_start, default_end
+
+
 def get_configured_meal_times(options: dict[str, Any]) -> dict[str, tuple[str, str]]:
     """Resolve meal slot times from config entry options."""
-    result: dict[str, tuple[str, str]] = {}
-    for entry_type in MEALPLAN_ENTRY_TYPES:
-        default_start, default_end = DEFAULT_MEAL_TIMES[entry_type]
-        start = options.get(meal_time_option_key(entry_type, "start"), default_start)
-        end = options.get(meal_time_option_key(entry_type, "end"), default_end)
-        result[entry_type] = (format_time_value(start), format_time_value(end))
-    return result
+    return {
+        entry_type: _slot_times(options, entry_type) for entry_type in MEALPLAN_ENTRY_TYPES
+    }
+
+
+def normalize_mealplan_entry_type(entry_type: str) -> str:
+    """Map legacy entry types to current ones."""
+    if entry_type == MealplanEntryType.SIDE:
+        return MealplanEntryType.SIDE_LUNCH
+    return entry_type
 
 
 def resolve_meal_slot_times(
@@ -60,7 +89,8 @@ def resolve_meal_slot_times(
             format_time_value(mealplan.start_time),
             format_time_value(mealplan.end_time),
         )
-    return get_configured_meal_times(options)[mealplan.entry_type]
+    entry_type = normalize_mealplan_entry_type(mealplan.entry_type)
+    return get_configured_meal_times(options)[entry_type]
 
 
 def normalize_meal_time_option_values(user_input: dict[str, Any]) -> dict[str, str]:
@@ -82,6 +112,8 @@ def merge_meal_times_from_api(
     """Merge meal time updates into config entry options."""
     options = dict(current)
     for entry_type, slot in meal_times.items():
+        if entry_type == MealplanEntryType.SIDE:
+            entry_type = MealplanEntryType.SIDE_LUNCH
         if entry_type not in MEALPLAN_ENTRY_TYPES or not isinstance(slot, dict):
             continue
         start = slot.get("start")
