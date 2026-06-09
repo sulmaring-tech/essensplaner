@@ -170,6 +170,21 @@ class EssensplanerStore:
             await self._async_save()
             return entry
 
+    async def async_clear_mealplan(self, plan_date: date, entry_type: str) -> bool:
+        """Remove a meal plan slot."""
+        date_str = plan_date.isoformat()
+        async with self._lock:
+            before = len(self._data.mealplans)
+            self._data.mealplans = [
+                m
+                for m in self._data.mealplans
+                if not (m.date == date_str and m.entry_type == entry_type)
+            ]
+            if len(self._data.mealplans) == before:
+                return False
+            await self._async_save()
+            return True
+
     async def async_set_random_mealplan(
         self, plan_date: date, entry_type: str
     ) -> MealplanEntry:

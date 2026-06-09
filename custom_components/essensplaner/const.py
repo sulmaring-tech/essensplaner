@@ -68,3 +68,7 @@ SERVICE_CREATE_COOKBOOK = "create_cookbook"
 SERVICE_DELETE_COOKBOOK = "delete_cookbook"
 SERVICE_ADD_RECIPE_TO_COOKBOOK = "add_recipe_to_cookbook"
 SERVICE_REMOVE_RECIPE_FROM_COOKBOOK = "remove_recipe_from_cookbook"
+SERVICE_CLEAR_MEALPLAN = "clear_mealplan"
+
+PANEL_URL_PATH = "essensplaner"
+PANEL_JS_URL = "/essensplaner/panel.js"

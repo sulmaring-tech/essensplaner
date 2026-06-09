@@ -15,6 +15,7 @@ from .coordinator import (
     EssensplanerShoppingListCoordinator,
     EssensplanerStatisticsCoordinator,
 )
+from .panel import async_register_panel
 from .services import async_setup_services
 from .storage import EssensplanerStore
 
@@ -26,6 +27,7 @@ CONFIG_SCHEMA = cv.empty_config_schema(DOMAIN)
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up Essensplaner."""
     async_setup_services(hass)
+    await async_register_panel(hass)
     return True
 
 

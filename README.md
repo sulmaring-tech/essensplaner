@@ -12,8 +12,9 @@ Das Plugin-Logo liegt unter `custom_components/essensplaner/brand/` (`icon.png`,
 
 | Bereich | Funktion |
 |---------|----------|
+| **Web-Panel** | Sidebar „Essensplaner“ – Rezepte importieren, anlegen, ansehen, Wochenplan |
 | **Rezepte** | Manuell erstellen, von URLs importieren, suchen, löschen |
-| **Essensplan** | 7 Mahlzeitentypen (Frühstück bis Snack) als Kalender-Entitäten |
+| **Essensplan** | Frühstück, Mittag & Abendessen im Panel + Kalender-Entitäten |
 | **Einkaufsliste** | Native To-do-Listen mit Abhaken, Sortieren, Zutaten aus Rezepten |
 | **Kochbücher** | Rezeptsammlungen (Datenmodell + Service) |
 | **Sensoren** | Anzahl Rezepte, Kategorien, Tags, Werkzeuge, Kochbücher |
@@ -48,6 +49,7 @@ Alle Daten werden lokal in Home Assistant gespeichert (`.storage/essensplaner.*`
 | `essensplaner.get_mealplan` | Essensplan für Zeitraum |
 | `essensplaner.set_mealplan` | Gericht/Notiz planen |
 | `essensplaner.set_random_mealplan` | Zufälliges Rezept planen |
+| `essensplaner.clear_mealplan` | Geplanten Eintrag entfernen |
 | `essensplaner.add_recipe_to_shopping_list` | Zutaten zur Einkaufsliste |
 | `essensplaner.update_recipe` | Bestehendes Rezept ändern |
 | `essensplaner.get_cookbooks` | Kochbücher inkl. Rezepten auflisten |
@@ -105,34 +107,24 @@ Nach der Einrichtung werden automatisch erstellt:
 - **To-do**: Einkaufsliste (weitere Listen über Daten/API erweiterbar)
 - **Sensoren**: Rezepte, Kategorien, Tags, Werkzeuge, Kochbücher
 
-## Typischer Workflow (ohne eigene Web-UI)
+## Web-Panel (Sidebar)
 
-Essensplaner hat **keine Mealie-ähnliche Browser-Oberfläche** – alles läuft über Home Assistant:
+Nach Installation und Neustart erscheint in der Home-Assistant-Sidebar **Essensplaner** (Icon: 🍽️).
 
-| Aufgabe | Wo |
-|---------|-----|
-| Rezepte importieren | Aktion `essensplaner.import_recipe` oder Skript in [`examples/import_startrezepte.yaml`](examples/import_startrezepte.yaml) |
-| Essensplan ansehen | Kalender-Karten (`calendar.*_mittagessen`, `*_abendessen`, …) |
-| Einkaufen | Native To-do-Liste (`todo.*`) |
-| Kochbücher | Nur per Service `essensplaner.get_cookbooks` (kein eigenes UI) |
-| Dashboard | Vorlage: [`examples/dashboard_essensplaner.yaml`](examples/dashboard_essensplaner.yaml) |
+| Tab | Funktionen |
+|-----|------------|
+| **Rezepte** | URL importieren, manuell anlegen, suchen, Zutaten & Zubereitung ansehen, bearbeiten, löschen, zur Einkaufsliste |
+| **Essensplan** | Wochenübersicht mit Frühstück, Mittag- und Abendessen – Rezept per Klick zuweisen oder entfernen |
 
-### Startrezepte importieren
+Geplante Gerichte erscheinen zusätzlich auf den Kalender-Entitäten und können im Dashboard angezeigt werden.
 
-1. `examples/import_startrezepte.yaml` in deine HA-Konfiguration einbinden
-2. `CONFIG_ENTRY_ID` durch deine Essensplaner-ID ersetzen
-3. Skript `script.essensplaner_startrezepte_importieren` ausführen
+### Alternativ per Services
+
+Rezepte und Planung lassen sich weiterhin per Automatisierung steuern – siehe [`examples/import_startrezepte.yaml`](examples/import_startrezepte.yaml) und [`examples/dashboard_essensplaner.yaml`](examples/dashboard_essensplaner.yaml).
 
 ## Abgrenzung zu Mealie
 
-Essensplaner ist eine **eingebettete Lösung** ohne Web-UI wie Mealie. Verwaltung erfolgt über:
-
-- Home Assistant To-do-Listen (Einkauf)
-- Kalender-Entitäten (Essensplan)
-- Entwicklerwerkzeuge → Aktionen (Rezepte, Planung)
-- Automatisierungen und Dashboards
-
-Für eine vollständige Mealie-Web-Oberfläche empfehlen wir die offizielle [Mealie-Integration](https://www.home-assistant.io/integrations/mealie/) mit einem Mealie-Server.
+Essensplaner ist eine **eingebettete Lösung** ohne separaten Mealie-Server. Das Panel deckt Rezepte und Wochenplan ab; Einkauf läuft über native To-do-Listen, Kochbücher derzeit nur per Service.
 
 ## Lizenz
 

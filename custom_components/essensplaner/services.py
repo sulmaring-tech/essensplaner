@@ -42,6 +42,7 @@ from .const import (
     SERVICE_CREATE_RECIPE,
     SERVICE_DELETE_RECIPE,
     SERVICE_ADD_RECIPE_TO_COOKBOOK,
+    SERVICE_CLEAR_MEALPLAN,
     SERVICE_CREATE_COOKBOOK,
     SERVICE_DELETE_COOKBOOK,
     SERVICE_GET_COOKBOOKS,
@@ -196,6 +197,14 @@ SERVICE_REMOVE_RECIPE_FROM_COOKBOOK_SCHEMA = vol.Schema(
     }
 )
 
+SERVICE_CLEAR_MEALPLAN_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_CONFIG_ENTRY_ID): str,
+        vol.Required(ATTR_DATE): cv.date,
+        vol.Required(ATTR_ENTRY_TYPE): vol.In(MEALPLAN_ENTRY_TYPES),
+    }
+)
+
 
 def _get_entry(call: ServiceCall) -> EssensplanerConfigEntry:
     """Get config entry from service call."""
@@ -313,6 +322,17 @@ async def _async_set_mealplan(call: ServiceCall) -> ServiceResponse:
     await _async_refresh_all(entry)
     if call.return_response:
         return {"mealplan": mealplan.to_service_dict(recipe)}
+    return None
+
+
+async def _async_clear_mealplan(call: ServiceCall) -> ServiceResponse:
+    """Clear a meal plan slot."""
+    entry = _get_entry(call)
+    await entry.runtime_data.store.async_clear_mealplan(
+        call.data[ATTR_DATE],
+        call.data[ATTR_ENTRY_TYPE],
+    )
+    await _async_refresh_all(entry)
     return None
 
 
@@ -511,6 +531,13 @@ def async_setup_services(hass: HomeAssistant) -> None:
         _async_set_random_mealplan,
         schema=SERVICE_SET_RANDOM_MEALPLAN_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_CLEAR_MEALPLAN,
+        _async_clear_mealplan,
+        schema=SERVICE_CLEAR_MEALPLAN_SCHEMA,
+        supports_response=SupportsResponse.NONE,
     )
     hass.services.async_register(
         DOMAIN,

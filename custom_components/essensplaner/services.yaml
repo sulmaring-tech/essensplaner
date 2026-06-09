@@ -156,6 +156,30 @@ set_random_mealplan:
             - drink
             - snack
 
+clear_mealplan:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: essensplaner
+    date:
+      required: true
+      selector:
+        date:
+    entry_type:
+      required: true
+      selector:
+        select:
+          options:
+            - breakfast
+            - lunch
+            - dinner
+            - side
+            - dessert
+            - drink
+            - snack
+
 add_recipe_to_shopping_list:
   fields:
     config_entry_id:
