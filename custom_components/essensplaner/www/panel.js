@@ -318,9 +318,11 @@ class PanelEssensplaner extends HTMLElement {
   _fmtDay(iso) {
     const d = new Date(iso + "T12:00:00");
     const wd = d.toLocaleDateString("de-DE", { weekday: "long" });
+    const wdShort = d.toLocaleDateString("de-DE", { weekday: "short" }).replace(/\.$/, "");
     const dm = d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" });
+    const dayNum = d.getDate();
     const today = this._fmtIsoLocal(this._today());
-    return { wd, dm, today: iso === today };
+    return { wd, wdShort, dm, dayNum, today: iso === today };
   }
 
   _filtered() {
@@ -406,6 +408,56 @@ class PanelEssensplaner extends HTMLElement {
   _planName(p) {
     if (!p) return null;
     return p.recipe?.name || p.title || null;
+  }
+
+  _planRecipe(p) {
+    if (!p) return null;
+    if (p.recipe) return p.recipe;
+    if (p.recipe_id) {
+      return this._recipes.find((r) => r.id === p.recipe_id) || null;
+    }
+    return null;
+  }
+
+  _isWeekend(iso) {
+    const day = new Date(iso + "T12:00:00").getDay();
+    return day === 0 || day === 6;
+  }
+
+  _mealTimeLabel(mealId) {
+    const slot = this._mealTimes[mealId];
+    if (!slot?.start || !slot?.end) return "";
+    return `${this._toTimeInput(slot.start)}–${this._toTimeInput(slot.end)}`;
+  }
+
+  _renderPlanCell(day, meal) {
+    const { today } = this._fmtDay(day);
+    const weekend = this._isWeekend(day);
+    const p = this._plan(day, meal.id);
+    const name = this._planName(p);
+    const recipe = this._planRecipe(p);
+    const filled = !!name;
+    const cellClass = [
+      "plan-cell",
+      filled ? "filled" : "empty",
+      `meal-${meal.id}`,
+      today ? "is-today" : "",
+    ].filter(Boolean).join(" ");
+    const inner = filled
+      ? `
+        ${recipe ? `<div class="plan-cell-media">${this._renderRecipeThumb(recipe, "plan")}</div>` : ""}
+        <div class="plan-cell-body">
+          <span class="plan-name">${this._esc(name)}</span>
+        </div>`
+      : `
+        <span class="plan-empty-icon" aria-hidden="true"><ha-icon icon="mdi:plus-circle-outline"></ha-icon></span>
+        <span class="plan-empty">Zuweisen</span>`;
+    return `
+      <td class="plan-td ${today ? "today-col" : ""} ${weekend ? "weekend-col" : ""}">
+        <button type="button" class="${cellClass}" data-a="plan-cell" data-date="${day}" data-type="${meal.id}">
+          ${inner}
+        </button>
+      </td>`;
   }
 
   _mealLabel(id) {
@@ -498,6 +550,16 @@ class PanelEssensplaner extends HTMLElement {
     return text || "";
   }
 
+  _formatServings(servings) {
+    if (!servings) return null;
+    const text = String(servings).trim();
+    const match = text.match(/(\d+)/);
+    if (!match) return text;
+    const count = parseInt(match[1], 10);
+    if (Number.isNaN(count)) return text;
+    return count === 1 ? "1 Portion" : `${count} Portionen`;
+  }
+
   _formatDuration(minutes) {
     if (!minutes) return null;
     const mins = Number(minutes);
@@ -510,8 +572,9 @@ class PanelEssensplaner extends HTMLElement {
 
   _renderMetaChips(recipe) {
     const chips = [];
-    if (recipe.servings) {
-      chips.push(`<span class="meta-chip"><ha-icon icon="mdi:account-group"></ha-icon>${this._esc(recipe.servings)}</span>`);
+    const portions = this._formatServings(recipe.servings);
+    if (portions) {
+      chips.push(`<span class="meta-chip"><ha-icon icon="mdi:account-group"></ha-icon>${this._esc(portions)}</span>`);
     }
     const prep = this._formatDuration(recipe.prep_time);
     if (prep) {
@@ -619,7 +682,8 @@ class PanelEssensplaner extends HTMLElement {
 
   _recipeSummary(recipe) {
     const parts = [];
-    if (recipe.servings) parts.push(recipe.servings);
+    const portions = this._formatServings(recipe.servings);
+    if (portions) parts.push(portions);
     const prep = this._formatDuration(recipe.prep_time);
     const cook = this._formatDuration(recipe.cook_time);
     if (prep || cook) parts.push([prep, cook].filter(Boolean).join(" + "));
@@ -649,12 +713,14 @@ class PanelEssensplaner extends HTMLElement {
     const name = this._formVal("name").trim();
     if (!name) { this._notify("Bitte einen Namen eingeben", true); return; }
     const imageUrl = this._formVal("image_url").trim();
+    const servings = this._formVal("servings").trim();
     const payload = {
       name,
       description: this._formVal("description").trim(),
       ingredients: this._formVal("ingredients").split("\n").map((s) => s.trim()).filter(Boolean),
       instructions: this._instructionsFromText(this._formVal("instructions")),
       image_url: imageUrl || "",
+      servings: servings || "",
       tags: this._tagsForSave(),
     };
     this._loading = true;
@@ -912,13 +978,14 @@ class PanelEssensplaner extends HTMLElement {
   /* ── render blocks ────────────────────────────────── */
 
   _renderForm(r) {
-    const base = r || { name: "", description: "", ingredients: [], instructions: [], image_url: "", tags: [] };
+    const base = r || { name: "", description: "", ingredients: [], instructions: [], image_url: "", servings: "", tags: [] };
     let instructionsText = this._instructionsToText(base.instructions);
     let ingredientsText = (base.ingredients || []).map((i) => this._formatIngredient(i)).join("\n");
     const data = {
       name: base.name || "",
       description: base.description || "",
       image_url: base.image_url || "",
+      servings: this._formatServings(base.servings) || base.servings || "",
       mealTags: this._recipeMealTags(base),
     };
     if (this._formDraft) {
@@ -927,6 +994,7 @@ class PanelEssensplaner extends HTMLElement {
       if (this._formDraft.ingredients !== undefined) ingredientsText = this._formDraft.ingredients;
       if (this._formDraft.instructions !== undefined) instructionsText = this._formDraft.instructions;
       if (this._formDraft.image_url !== undefined) data.image_url = this._formDraft.image_url;
+      if (this._formDraft.servings !== undefined) data.servings = this._formDraft.servings;
     }
     const previewUrl = data.image_url?.trim();
     const mealChecks = MEALS.map(
@@ -945,6 +1013,8 @@ class PanelEssensplaner extends HTMLElement {
             : `<div class="form-preview-placeholder"><ha-icon icon="mdi:image-plus"></ha-icon><span>Bild-Vorschau</span></div>`}
         </div>
         <label>Name<input class="inp" name="name" value="${this._esc(data.name)}" autofocus></label>
+        <label>Portionen <span class="hint">(z. B. 4 oder „4 Portionen“)</span>
+          <input class="inp" name="servings" placeholder="4" value="${this._esc(data.servings || "")}"></label>
         <label>Bild-URL <span class="hint">(wird beim Import oft automatisch gesetzt)</span>
           <input class="inp" name="image_url" type="url" placeholder="https://…" value="${this._esc(data.image_url || "")}"></label>
         <fieldset class="meal-tag-field">
@@ -952,7 +1022,7 @@ class PanelEssensplaner extends HTMLElement {
           <div class="meal-checks">${mealChecks}</div>
         </fieldset>
         <label>Beschreibung<textarea class="inp" name="description" rows="2">${this._esc(data.description || "")}</textarea></label>
-        <label>Zutaten <span class="hint">(eine pro Zeile)</span>
+        <label>Zutaten <span class="hint">(eine pro Zeile, z. B. „500 g Mehl“ oder „1 EL Öl“)</span>
           <textarea class="inp" name="ingredients" rows="6">${this._esc(ingredientsText)}</textarea></label>
         <label>Zubereitung <span class="hint">(Schritte durch eine Leerzeile trennen; Zeilenumbrüche innerhalb eines Schritts bleiben erhalten)</span>
           <textarea class="inp" name="instructions" rows="8">${this._esc(instructionsText)}</textarea></label>
@@ -1146,35 +1216,59 @@ class PanelEssensplaner extends HTMLElement {
     const weekLabel = `${monday.toLocaleDateString("de-DE", { day: "2-digit", month: "short" })} – ${sunday.toLocaleDateString("de-DE", { day: "2-digit", month: "short", year: "numeric" })}`;
 
     const head = days.map((day) => {
-      const { wd, dm, today } = this._fmtDay(day);
-      return `<th class="day-head ${today ? "today-col-head" : ""}"><strong>${wd}</strong><br>${dm}</th>`;
+      const { wdShort, dayNum, today } = this._fmtDay(day);
+      const weekend = this._isWeekend(day);
+      return `
+        <th class="day-head ${today ? "today-col-head" : ""} ${weekend ? "weekend-col-head" : ""}">
+          <span class="day-wd">${wdShort}</span>
+          <span class="day-num">${dayNum}</span>
+          ${today ? `<span class="day-today-badge">Heute</span>` : ""}
+        </th>`;
     }).join("");
     const rows = MEALS.map((m) => {
-      const cells = days.map((day) => {
-        const { today } = this._fmtDay(day);
-        const p = this._plan(day, m.id);
-        const name = this._planName(p);
-        return `
-          <td class="${today ? "today-col" : ""}">
-            <button type="button" class="plan-cell ${name ? "filled" : ""}" data-a="plan-cell" data-date="${day}" data-type="${m.id}">
-              ${name ? `<span class="plan-name">${this._esc(name)}</span>` : `<span class="plan-empty">+ Zuweisen</span>`}
-            </button>
-          </td>`;
-      }).join("");
-      return `<tr><td class="meal-label"><ha-icon icon="${m.icon}"></ha-icon> ${m.label}</td>${cells}</tr>`;
+      const timeHint = this._mealTimeLabel(m.id);
+      const cells = days.map((day) => this._renderPlanCell(day, m)).join("");
+      return `
+        <tr class="meal-row meal-row-${m.id}">
+          <td class="meal-label meal-row-${m.id}">
+            <div class="meal-label-inner">
+              <span class="meal-icon-wrap"><ha-icon icon="${m.icon}"></ha-icon></span>
+              <span class="meal-label-text">${m.label}</span>
+              ${timeHint ? `<span class="meal-time-hint">${timeHint}</span>` : ""}
+            </div>
+          </td>
+          ${cells}
+        </tr>`;
     }).join("");
 
+    const onCurrentWeek = this._weekOffset === 0;
     return `
       ${this._renderMealTimesSection()}
-      <div class="week-nav">
-        <button class="btn icon" data-a="week-prev"><ha-icon icon="mdi:chevron-left"></ha-icon></button>
-        <span class="week-label">${weekLabel}</span>
-        <button class="btn icon" data-a="week-next"><ha-icon icon="mdi:chevron-right"></ha-icon></button>
-        <button class="btn" data-a="week-today">Heute</button>
+      <div class="plan-header-card">
+        <div class="week-nav">
+          <button type="button" class="btn icon week-btn" data-a="week-prev" title="Vorherige Woche">
+            <ha-icon icon="mdi:chevron-left"></ha-icon>
+          </button>
+          <div class="week-label-wrap">
+            <span class="week-kicker">Essensplan</span>
+            <span class="week-label">${weekLabel}</span>
+          </div>
+          <button type="button" class="btn icon week-btn" data-a="week-next" title="Nächste Woche">
+            <ha-icon icon="mdi:chevron-right"></ha-icon>
+          </button>
+          <button type="button" class="btn week-today-btn ${onCurrentWeek ? "muted-btn" : "primary"}" data-a="week-today" ${onCurrentWeek ? "disabled" : ""}>Heute</button>
+        </div>
       </div>
       <div class="plan-wrap">
         <table class="plan-grid">
-          <thead><tr><th class="corner"></th>${head}</tr></thead>
+          <thead>
+            <tr>
+              <th class="corner">
+                <span class="corner-label"><ha-icon icon="mdi:silverware-variant"></ha-icon></span>
+              </th>
+              ${head}
+            </tr>
+          </thead>
           <tbody>${rows}</tbody>
         </table>
       </div>`;
@@ -1425,6 +1519,7 @@ PanelEssensplaner._CSS = `
   }
   .recipe-thumb.sm { width: 72px; height: 72px; }
   .recipe-thumb.tile { width: 100%; height: 100%; border-radius: 0; }
+  .recipe-thumb.plan { width: 100%; height: 100%; border-radius: 0; object-fit: cover; }
   .recipe-thumb.xs { width: 44px; height: 44px; border-radius: 8px; }
   .recipe-thumb.hero { width: 100%; height: 100%; border-radius: 0; min-height: 220px; max-height: 320px; }
   .recipe-thumb.placeholder {
@@ -1605,39 +1700,141 @@ PanelEssensplaner._CSS = `
   .times-label ha-icon { --mdc-icon-size: 18px; color: var(--primary-color); }
   .times-row label { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--secondary-text-color); }
   .time-inp { width: auto; min-width: 7rem; padding: 8px 10px; }
+  .plan-header-card {
+    margin-bottom: 16px; padding: 14px 18px; border-radius: 14px;
+    background: var(--card-background-color, #fff);
+    border: 1px solid var(--divider-color, #e8e8e8);
+    box-shadow: 0 2px 12px rgba(0,0,0,.04);
+  }
   .week-nav {
-    display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap;
+    display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap;
   }
-  .week-label { font-weight: 500; font-size: 1.05rem; min-width: 180px; text-align: center; }
-  .plan-wrap { overflow-x: auto; border-radius: 12px; border: 1px solid var(--divider-color, #e8e8e8); background: var(--card-background-color, #fff); }
-  .plan-grid { width: 100%; border-collapse: collapse; min-width: 640px; }
-  .plan-grid th, .plan-grid td { padding: 0; border: 1px solid var(--divider-color, #eee); vertical-align: top; }
-  .plan-grid th {
-    padding: 12px 8px; font-size: 0.85rem; font-weight: 500;
+  .week-btn {
+    border-radius: 999px; width: 40px; height: 40px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-color: var(--divider-color, #ddd);
+  }
+  .week-label-wrap { display: flex; flex-direction: column; align-items: center; min-width: 200px; gap: 2px; }
+  .week-kicker {
+    font-size: 0.72rem; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--secondary-text-color); font-weight: 600;
+  }
+  .week-label { font-weight: 600; font-size: 1.1rem; line-height: 1.2; }
+  .week-today-btn { margin-left: 4px; border-radius: 999px; }
+  .week-today-btn.muted-btn { opacity: .55; cursor: default; }
+  .plan-wrap {
+    overflow-x: auto; border-radius: 16px;
+    border: 1px solid var(--divider-color, #e8e8e8);
+    background: var(--card-background-color, #fff);
+    box-shadow: 0 4px 24px rgba(0,0,0,.06);
+    padding: 12px;
+  }
+  .plan-grid { width: 100%; border-collapse: separate; border-spacing: 8px; min-width: 720px; }
+  .plan-grid th, .plan-grid td { padding: 0; border: none; vertical-align: middle; }
+  .plan-grid th.corner {
+    width: 108px; min-width: 108px; vertical-align: bottom; padding-bottom: 6px;
+  }
+  .corner-label {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 36px; height: 36px; border-radius: 10px;
     background: var(--secondary-background-color, #f5f5f5);
-    text-align: center;
+    color: var(--secondary-text-color);
   }
-  .plan-grid th.corner { width: 120px; min-width: 120px; background: var(--secondary-background-color, #f5f5f5); }
-  .day-head { min-width: 88px; line-height: 1.35; }
-  .today-col-head { background: color-mix(in srgb, var(--primary-color) 12%, var(--secondary-background-color, #f5f5f5)); }
-  .meal-label {
-    padding: 12px 14px !important; font-size: 0.85rem; font-weight: 500;
-    white-space: nowrap; background: var(--secondary-background-color, #fafafa);
-    vertical-align: middle;
+  .corner-label ha-icon { --mdc-icon-size: 20px; }
+  .day-head {
+    min-width: 96px; text-align: center; padding: 4px 6px 8px;
+    vertical-align: bottom;
   }
-  .meal-label ha-icon { vertical-align: middle; margin-right: 6px; --mdc-icon-size: 18px; color: var(--primary-color); }
-  .today-col { background: color-mix(in srgb, var(--primary-color) 6%, var(--card-background-color, #fff)); }
+  .day-wd {
+    display: block; font-size: 0.78rem; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--secondary-text-color); font-weight: 600;
+  }
+  .day-num {
+    display: block; font-size: 1.35rem; font-weight: 700; line-height: 1.1; margin-top: 2px;
+  }
+  .day-today-badge {
+    display: inline-block; margin-top: 6px; padding: 2px 8px; border-radius: 999px;
+    font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+    background: var(--primary-color); color: var(--text-primary-color, #fff);
+  }
+  .today-col-head .day-num { color: var(--primary-color); }
+  .weekend-col-head .day-wd, .weekend-col-head .day-num { opacity: .72; }
+  .meal-label { width: 108px; min-width: 108px; vertical-align: middle; }
+  .meal-label-inner {
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    padding: 8px 6px; text-align: center;
+  }
+  .meal-icon-wrap {
+    display: flex; align-items: center; justify-content: center;
+    width: 40px; height: 40px; border-radius: 12px;
+    background: color-mix(in srgb, var(--primary-color) 12%, var(--card-background-color, #fff));
+    color: var(--primary-color);
+  }
+  .meal-icon-wrap ha-icon { --mdc-icon-size: 22px; }
+  .meal-row-breakfast .meal-icon-wrap {
+    background: color-mix(in srgb, #e65100 14%, var(--card-background-color, #fff));
+    color: #e65100;
+  }
+  .meal-row-lunch .meal-icon-wrap {
+    background: color-mix(in srgb, #2e7d32 14%, var(--card-background-color, #fff));
+    color: #2e7d32;
+  }
+  .meal-row-dinner .meal-icon-wrap {
+    background: color-mix(in srgb, #5e35b1 14%, var(--card-background-color, #fff));
+    color: #5e35b1;
+  }
+  .meal-label-text { font-size: 0.82rem; font-weight: 600; line-height: 1.25; }
+  .meal-time-hint { font-size: 0.72rem; color: var(--secondary-text-color); white-space: nowrap; }
+  .plan-td { vertical-align: stretch; }
+  .weekend-col .plan-cell.empty { background: color-mix(in srgb, var(--secondary-background-color, #f5f5f5) 80%, transparent); }
   .plan-cell {
-    width: 100%; min-height: 72px; padding: 12px; border: none; background: transparent;
-    cursor: pointer; text-align: left; font: inherit; color: inherit;
-    transition: background .12s;
+    width: 100%; min-height: 104px; padding: 0; margin: 0;
+    border-radius: 14px; cursor: pointer; text-align: center; font: inherit; color: inherit;
+    display: flex; flex-direction: column; align-items: stretch; justify-content: center;
+    transition: transform .14s, box-shadow .14s, border-color .14s, background .14s;
+    overflow: hidden;
   }
-  .plan-cell:hover { background: var(--secondary-background-color, #f5f5f5); }
-  .today-col .plan-cell:hover { background: color-mix(in srgb, var(--primary-color) 10%, var(--secondary-background-color, #f5f5f5)); }
-  .plan-cell.filled { background: color-mix(in srgb, var(--primary-color) 8%, var(--card-background-color, #fff)); }
-  .today-col .plan-cell.filled { background: color-mix(in srgb, var(--primary-color) 14%, var(--card-background-color, #fff)); }
-  .plan-name { font-size: 0.88rem; font-weight: 500; line-height: 1.35; display: block; }
-  .plan-empty { font-size: 0.82rem; color: var(--secondary-text-color); }
+  .plan-cell.empty {
+    gap: 6px; padding: 14px 10px;
+    border: 2px dashed color-mix(in srgb, var(--divider-color, #ccc) 90%, transparent);
+    background: color-mix(in srgb, var(--secondary-background-color, #fafafa) 70%, var(--card-background-color, #fff));
+  }
+  .plan-cell.empty:hover {
+    border-color: var(--primary-color);
+    background: color-mix(in srgb, var(--primary-color) 6%, var(--card-background-color, #fff));
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(0,0,0,.06);
+  }
+  .plan-cell.filled {
+    border: 1px solid color-mix(in srgb, var(--primary-color) 22%, var(--divider-color, #ddd));
+    background: var(--card-background-color, #fff);
+    box-shadow: 0 2px 10px rgba(0,0,0,.04);
+  }
+  .plan-cell.filled:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 22px rgba(0,0,0,.1);
+    border-color: var(--primary-color);
+  }
+  .plan-cell.is-today.filled {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-color) 35%, transparent), 0 4px 16px rgba(0,0,0,.06);
+  }
+  .plan-cell.meal-breakfast.filled { border-color: color-mix(in srgb, #e65100 35%, var(--divider-color, #ddd)); }
+  .plan-cell.meal-lunch.filled { border-color: color-mix(in srgb, #2e7d32 35%, var(--divider-color, #ddd)); }
+  .plan-cell.meal-dinner.filled { border-color: color-mix(in srgb, #5e35b1 35%, var(--divider-color, #ddd)); }
+  .plan-cell-media {
+    height: 58px; overflow: hidden; flex-shrink: 0;
+    background: var(--secondary-background-color, #eee);
+  }
+  .plan-cell-media .recipe-thumb.placeholder { width: 100%; height: 100%; border-radius: 0; }
+  .plan-cell-media .recipe-thumb.placeholder ha-icon { --mdc-icon-size: 22px; }
+  .plan-cell-body { padding: 10px 10px 12px; text-align: left; flex: 1; display: flex; align-items: flex-start; }
+  .plan-name {
+    font-size: 0.84rem; font-weight: 600; line-height: 1.35;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .plan-empty-icon { color: var(--secondary-text-color); opacity: .65; }
+  .plan-empty-icon ha-icon { --mdc-icon-size: 26px; }
+  .plan-empty { font-size: 0.78rem; font-weight: 500; color: var(--secondary-text-color); }
   .overlay {
     position: fixed; inset: 0; background: rgba(0,0,0,.45);
     display: flex; align-items: center; justify-content: center;

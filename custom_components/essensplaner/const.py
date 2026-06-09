@@ -33,6 +33,7 @@ ATTR_COOKBOOK_ID = "cookbook_id"
 ATTR_START_TIME = "start_time"
 ATTR_END_TIME = "end_time"
 ATTR_IMAGE_URL = "image_url"
+ATTR_SERVINGS = "servings"
 ATTR_QUERY = "query"
 ATTR_LIMIT = "limit"
 

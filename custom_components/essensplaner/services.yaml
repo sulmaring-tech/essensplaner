@@ -104,6 +104,10 @@ create_recipe:
       example: "https://example.com/rezept.jpg"
       selector:
         text:
+    servings:
+      example: "4 Portionen"
+      selector:
+        text:
 
 delete_recipe:
   fields:
@@ -252,6 +256,10 @@ update_recipe:
         text:
     image_url:
       example: "https://example.com/rezept.jpg"
+      selector:
+        text:
+    servings:
+      example: "4 Portionen"
       selector:
         text:
 

@@ -25,6 +25,7 @@ from .const import (
     ATTR_END_TIME,
     ATTR_ENTRY_TYPE,
     ATTR_IMAGE_URL,
+    ATTR_SERVINGS,
     ATTR_INCLUDE_TAGS,
     ATTR_INGREDIENTS,
     ATTR_INSTRUCTIONS,
@@ -66,7 +67,11 @@ from .coordinator import EssensplanerConfigEntry
 from .meal_times import format_time_value, resolve_meal_slot_times
 from .models import Ingredient, MealplanEntry, Recipe
 from .online_search import async_search_recipes_online
-from .recipe_importer import async_import_recipe_from_url
+from .recipe_importer import (
+    async_import_recipe_from_url,
+    normalize_servings,
+    parse_ingredient_lines,
+)
 from .utils import generate_id, unique_slug
 
 SERVICE_GET_MEALPLAN_SCHEMA = vol.Schema(
@@ -110,6 +115,7 @@ SERVICE_CREATE_RECIPE_SCHEMA = vol.Schema(
         vol.Optional(ATTR_TAGS): [str],
         vol.Optional(ATTR_CATEGORIES): [str],
         vol.Optional(ATTR_IMAGE_URL): vol.Any(cv.url, ""),
+        vol.Optional(ATTR_SERVINGS): str,
     }
 )
 
@@ -180,6 +186,7 @@ SERVICE_UPDATE_RECIPE_SCHEMA = vol.Schema(
         vol.Optional(ATTR_TAGS): [str],
         vol.Optional(ATTR_CATEGORIES): [str],
         vol.Optional(ATTR_IMAGE_URL): vol.Any(cv.url, ""),
+        vol.Optional(ATTR_SERVINGS): str,
     }
 )
 
@@ -341,11 +348,14 @@ async def _async_create_recipe(call: ServiceCall) -> ServiceResponse:
         slug=unique_slug(name, slugs),
         name=name,
         description=call.data.get(ATTR_DESCRIPTION),
-        ingredients=[Ingredient(name=i) for i in call.data.get(ATTR_INGREDIENTS, [])],
+        ingredients=parse_ingredient_lines(call.data.get(ATTR_INGREDIENTS, [])),
         instructions=call.data.get(ATTR_INSTRUCTIONS, []),
         tags=call.data.get(ATTR_TAGS, []),
         categories=call.data.get(ATTR_CATEGORIES, []),
         image_url=call.data.get(ATTR_IMAGE_URL) or None,
+        servings=normalize_servings(call.data[ATTR_SERVINGS])
+        if call.data.get(ATTR_SERVINGS)
+        else None,
     )
     recipe = await store.async_add_recipe(recipe)
     await _async_refresh_all(entry)
@@ -463,7 +473,7 @@ async def _async_update_recipe(call: ServiceCall) -> ServiceResponse:
     if ATTR_DESCRIPTION in call.data:
         recipe.description = call.data[ATTR_DESCRIPTION]
     if ATTR_INGREDIENTS in call.data:
-        recipe.ingredients = [Ingredient(name=i) for i in call.data[ATTR_INGREDIENTS]]
+        recipe.ingredients = parse_ingredient_lines(call.data[ATTR_INGREDIENTS])
     if ATTR_INSTRUCTIONS in call.data:
         recipe.instructions = call.data[ATTR_INSTRUCTIONS]
     if ATTR_TAGS in call.data:
@@ -473,6 +483,9 @@ async def _async_update_recipe(call: ServiceCall) -> ServiceResponse:
     if ATTR_IMAGE_URL in call.data:
         image_url = call.data[ATTR_IMAGE_URL]
         recipe.image_url = image_url or None
+    if ATTR_SERVINGS in call.data:
+        servings = call.data[ATTR_SERVINGS]
+        recipe.servings = normalize_servings(servings) if servings else None
 
     recipe = await store.async_add_recipe(recipe)
     await _async_refresh_all(entry)
