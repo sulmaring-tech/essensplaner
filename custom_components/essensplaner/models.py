@@ -87,6 +87,8 @@ class MealplanEntry:
     recipe_id: str | None = None
     title: str | None = None
     description: str | None = None
+    start_time: str | None = None
+    end_time: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return dict representation."""
@@ -95,9 +97,24 @@ class MealplanEntry:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> MealplanEntry:
         """Create from dict."""
-        return cls(**data)
+        return cls(
+            id=data["id"],
+            date=data["date"],
+            entry_type=data["entry_type"],
+            recipe_id=data.get("recipe_id"),
+            title=data.get("title"),
+            description=data.get("description"),
+            start_time=data.get("start_time"),
+            end_time=data.get("end_time"),
+        )
 
-    def to_service_dict(self, recipe: Recipe | None) -> dict[str, Any]:
+    def to_service_dict(
+        self,
+        recipe: Recipe | None,
+        *,
+        start_time: str | None = None,
+        end_time: str | None = None,
+    ) -> dict[str, Any]:
         """Return Mealie-compatible service response dict."""
         result: dict[str, Any] = {
             "id": self.id,
@@ -105,6 +122,8 @@ class MealplanEntry:
             "entry_type": self.entry_type,
             "title": self.title,
             "description": self.description,
+            "start_time": start_time,
+            "end_time": end_time,
         }
         if recipe:
             result["recipe"] = recipe.to_dict()

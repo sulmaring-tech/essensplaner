@@ -22,6 +22,7 @@ from .const import (
     ATTR_COOKBOOK_ID,
     ATTR_DESCRIPTION,
     ATTR_END_DATE,
+    ATTR_END_TIME,
     ATTR_ENTRY_TYPE,
     ATTR_INCLUDE_TAGS,
     ATTR_INGREDIENTS,
@@ -34,6 +35,7 @@ from .const import (
     ATTR_RESULT_LIMIT,
     ATTR_SEARCH_TERMS,
     ATTR_START_DATE,
+    ATTR_START_TIME,
     ATTR_TAGS,
     ATTR_URL,
     DOMAIN,
@@ -57,7 +59,8 @@ from .const import (
     SERVICE_UPDATE_RECIPE,
 )
 from .coordinator import EssensplanerConfigEntry
-from .models import Ingredient, Recipe
+from .meal_times import format_time_value, resolve_meal_slot_times
+from .models import Ingredient, MealplanEntry, Recipe
 from .recipe_importer import async_import_recipe_from_url
 from .utils import generate_id, unique_slug
 
@@ -119,6 +122,11 @@ SERVICE_SET_RANDOM_MEALPLAN_SCHEMA = vol.Schema(
     }
 )
 
+_MEALPLAN_TIME_SCHEMA = {
+    vol.Optional(ATTR_START_TIME): cv.time,
+    vol.Optional(ATTR_END_TIME): cv.time,
+}
+
 SERVICE_SET_MEALPLAN_SCHEMA = vol.Any(
     vol.Schema(
         {
@@ -126,6 +134,7 @@ SERVICE_SET_MEALPLAN_SCHEMA = vol.Any(
             vol.Required(ATTR_DATE): cv.date,
             vol.Required(ATTR_ENTRY_TYPE): vol.In(MEALPLAN_ENTRY_TYPES),
             vol.Required(ATTR_RECIPE_ID): str,
+            **_MEALPLAN_TIME_SCHEMA,
         }
     ),
     vol.Schema(
@@ -135,6 +144,7 @@ SERVICE_SET_MEALPLAN_SCHEMA = vol.Any(
             vol.Required(ATTR_ENTRY_TYPE): vol.In(MEALPLAN_ENTRY_TYPES),
             vol.Required(ATTR_NOTE_TITLE): str,
             vol.Optional(ATTR_NOTE_TEXT): str,
+            **_MEALPLAN_TIME_SCHEMA,
         }
     ),
 )
@@ -211,6 +221,29 @@ def _get_entry(call: ServiceCall) -> EssensplanerConfigEntry:
     return service.async_get_config_entry(call.hass, DOMAIN, call.data[ATTR_CONFIG_ENTRY_ID])
 
 
+def _mealplan_service_dict(
+    entry: EssensplanerConfigEntry,
+    mealplan: MealplanEntry,
+    recipe: Recipe | None,
+) -> dict:
+    """Build meal plan service response including resolved times."""
+    start_time, end_time = resolve_meal_slot_times(mealplan, entry.options)
+    return mealplan.to_service_dict(
+        recipe, start_time=start_time, end_time=end_time
+    )
+
+
+def _parse_mealplan_times(call: ServiceCall) -> tuple[str | None, str | None]:
+    """Parse optional start/end times from a service call."""
+    start = call.data.get(ATTR_START_TIME)
+    end = call.data.get(ATTR_END_TIME)
+    if bool(start) != bool(end):
+        raise ServiceValidationError("start_time and end_time must both be set")
+    if not start:
+        return None, None
+    return format_time_value(start), format_time_value(end)
+
+
 async def _async_get_mealplan(call: ServiceCall) -> ServiceResponse:
     """Get meal plan for date range."""
     entry = _get_entry(call)
@@ -224,7 +257,7 @@ async def _async_get_mealplan(call: ServiceCall) -> ServiceResponse:
     result = []
     for mealplan in mealplans:
         recipe = store.data.recipes.get(mealplan.recipe_id) if mealplan.recipe_id else None
-        result.append(mealplan.to_service_dict(recipe))
+        result.append(_mealplan_service_dict(entry, mealplan, recipe))
     return {"mealplan": result}
 
 
@@ -308,12 +341,15 @@ async def _async_set_mealplan(call: ServiceCall) -> ServiceResponse:
     entry = _get_entry(call)
     store = entry.runtime_data.store
     try:
+        start_time, end_time = _parse_mealplan_times(call)
         mealplan = await store.async_set_mealplan(
             call.data[ATTR_DATE],
             call.data[ATTR_ENTRY_TYPE],
             recipe_id=call.data.get(ATTR_RECIPE_ID),
             note_title=call.data.get(ATTR_NOTE_TITLE),
             note_text=call.data.get(ATTR_NOTE_TEXT),
+            start_time=start_time,
+            end_time=end_time,
         )
     except ValueError as err:
         raise ServiceValidationError(str(err)) from err
@@ -321,7 +357,7 @@ async def _async_set_mealplan(call: ServiceCall) -> ServiceResponse:
     recipe = store.data.recipes.get(mealplan.recipe_id) if mealplan.recipe_id else None
     await _async_refresh_all(entry)
     if call.return_response:
-        return {"mealplan": mealplan.to_service_dict(recipe)}
+        return {"mealplan": _mealplan_service_dict(entry, mealplan, recipe)}
     return None
 
 
@@ -350,7 +386,7 @@ async def _async_set_random_mealplan(call: ServiceCall) -> ServiceResponse:
     recipe = store.data.recipes.get(mealplan.recipe_id) if mealplan.recipe_id else None
     await _async_refresh_all(entry)
     if call.return_response:
-        return {"mealplan": mealplan.to_service_dict(recipe)}
+        return {"mealplan": _mealplan_service_dict(entry, mealplan, recipe)}
     return None
 
 

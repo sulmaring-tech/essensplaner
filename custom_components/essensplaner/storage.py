@@ -143,6 +143,8 @@ class EssensplanerStore:
         recipe_id: str | None = None,
         note_title: str | None = None,
         note_text: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
     ) -> MealplanEntry:
         """Set or replace a meal plan entry."""
         date_str = plan_date.isoformat()
@@ -165,6 +167,8 @@ class EssensplanerStore:
                 recipe_id=recipe.id if recipe else None,
                 title=note_title or (recipe.name if recipe else None),
                 description=note_text or (recipe.description if recipe else None),
+                start_time=start_time,
+                end_time=end_time,
             )
             self._data.mealplans.append(entry)
             await self._async_save()

@@ -13,6 +13,30 @@
       "already_configured": "This household is already configured."
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Meal times",
+        "description": "Default times for calendar entries. Existing meal plans use these unless a custom time range was set.",
+        "data": {
+          "breakfast_start": "Breakfast from",
+          "breakfast_end": "Breakfast until",
+          "lunch_start": "Lunch from",
+          "lunch_end": "Lunch until",
+          "dinner_start": "Dinner from",
+          "dinner_end": "Dinner until",
+          "side_start": "Side from",
+          "side_end": "Side until",
+          "dessert_start": "Dessert from",
+          "dessert_end": "Dessert until",
+          "drink_start": "Drink from",
+          "drink_end": "Drink until",
+          "snack_start": "Snack from",
+          "snack_end": "Snack until"
+        }
+      }
+    }
+  },
   "entity": {
     "calendar": {
       "breakfast": { "name": "Breakfast" },

@@ -30,6 +30,8 @@ ATTR_INSTRUCTIONS = "instructions"
 ATTR_TAGS = "tags"
 ATTR_CATEGORIES = "categories"
 ATTR_COOKBOOK_ID = "cookbook_id"
+ATTR_START_TIME = "start_time"
+ATTR_END_TIME = "end_time"
 
 DEFAULT_SHOPPING_LIST_NAME = "Einkaufsliste"
 

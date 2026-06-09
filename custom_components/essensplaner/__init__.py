@@ -67,6 +67,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: EssensplanerConfigEntry)
     return True
 
 
+async def async_update_options(
+    hass: HomeAssistant, entry: EssensplanerConfigEntry
+) -> None:
+    """Reload integration when meal times change."""
+    await hass.config_entries.async_reload(entry.entry_id)
+
+
 async def async_unload_entry(hass: HomeAssistant, entry: EssensplanerConfigEntry) -> bool:
     """Unload config entry."""
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

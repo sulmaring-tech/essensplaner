@@ -13,6 +13,30 @@
       "already_configured": "Dieser Haushalt ist bereits eingerichtet."
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Essenszeiten",
+        "description": "Standard-Uhrzeiten für Kalender-Einträge. Bestehende Planungen übernehmen diese Zeiten automatisch, sofern kein eigener Zeitraum gesetzt wurde.",
+        "data": {
+          "breakfast_start": "Frühstück von",
+          "breakfast_end": "Frühstück bis",
+          "lunch_start": "Mittagessen von",
+          "lunch_end": "Mittagessen bis",
+          "dinner_start": "Abendessen von",
+          "dinner_end": "Abendessen bis",
+          "side_start": "Beilage von",
+          "side_end": "Beilage bis",
+          "dessert_start": "Dessert von",
+          "dessert_end": "Dessert bis",
+          "drink_start": "Getränk von",
+          "drink_end": "Getränk bis",
+          "snack_start": "Snack von",
+          "snack_end": "Snack bis"
+        }
+      }
+    }
+  },
   "entity": {
     "calendar": {
       "breakfast": { "name": "Frühstück" },
