@@ -1,0 +1,186 @@
+get_mealplan:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: essensplaner
+    start_date:
+      selector:
+        date:
+    end_date:
+      selector:
+        date:
+
+get_recipe:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: essensplaner
+    recipe_id:
+      required: true
+      example: spaghetti-carbonara
+      selector:
+        text:
+
+get_recipes:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: essensplaner
+    search_terms:
+      example: pasta
+      selector:
+        text:
+    result_limit:
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 100
+
+import_recipe:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: essensplaner
+    url:
+      required: true
+      example: "https://www.example.com/rezept"
+      selector:
+        text:
+    include_tags:
+      default: false
+      selector:
+        boolean:
+
+create_recipe:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: essensplaner
+    name:
+      required: true
+      selector:
+        text:
+    description:
+      selector:
+        text:
+    ingredients:
+      selector:
+        text:
+    instructions:
+      selector:
+        text:
+    tags:
+      selector:
+        text:
+    categories:
+      selector:
+        text:
+
+delete_recipe:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: essensplaner
+    recipe_id:
+      required: true
+      selector:
+        text:
+
+set_mealplan:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: essensplaner
+    date:
+      required: true
+      selector:
+        date:
+    entry_type:
+      required: true
+      selector:
+        select:
+          options:
+            - breakfast
+            - lunch
+            - dinner
+            - side
+            - dessert
+            - drink
+            - snack
+    recipe_id:
+      selector:
+        text:
+    note_title:
+      selector:
+        text:
+    note_text:
+      selector:
+        text:
+
+set_random_mealplan:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: essensplaner
+    date:
+      required: true
+      selector:
+        date:
+    entry_type:
+      required: true
+      selector:
+        select:
+          options:
+            - breakfast
+            - lunch
+            - dinner
+            - side
+            - dessert
+            - drink
+            - snack
+
+add_recipe_to_shopping_list:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: essensplaner
+    recipe_id:
+      required: true
+      selector:
+        text:
+    list_id:
+      selector:
+        text:
+
+get_cookbooks:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: essensplaner
+
+get_shopping_list_items:
+  target:
+    entity:
+      domain: todo
+      integration: essensplaner

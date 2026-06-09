@@ -1,0 +1,37 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Essensplaner",
+        "description": "Local recipe manager, meal planner and shopping lists – similar to Mealie, built into Home Assistant.",
+        "data": {
+          "household_name": "Household name"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "This household is already configured."
+    }
+  },
+  "entity": {
+    "calendar": {
+      "breakfast": { "name": "Breakfast" },
+      "lunch": { "name": "Lunch" },
+      "dinner": { "name": "Dinner" },
+      "side": { "name": "Side" },
+      "dessert": { "name": "Dessert" },
+      "drink": { "name": "Drink" },
+      "snack": { "name": "Snack" }
+    },
+    "sensor": {
+      "recipes": { "name": "Recipes" },
+      "categories": { "name": "Categories" },
+      "tags": { "name": "Tags" },
+      "tools": { "name": "Tools" },
+      "cookbooks": { "name": "Cookbooks" }
+    },
+    "todo": {
+      "shopping_list": { "name": "Shopping list" }
+    }
+  }
+}

@@ -1,0 +1,83 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Essensplaner einrichten",
+        "description": "Lokaler Rezeptmanager, Essensplaner und Einkaufslisten – ähnlich wie Mealie, direkt in Home Assistant.",
+        "data": {
+          "household_name": "Haushaltsname"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Dieser Haushalt ist bereits eingerichtet."
+    }
+  },
+  "entity": {
+    "calendar": {
+      "breakfast": { "name": "Frühstück" },
+      "lunch": { "name": "Mittagessen" },
+      "dinner": { "name": "Abendessen" },
+      "side": { "name": "Beilage" },
+      "dessert": { "name": "Dessert" },
+      "drink": { "name": "Getränk" },
+      "snack": { "name": "Snack" }
+    },
+    "sensor": {
+      "recipes": { "name": "Rezepte" },
+      "categories": { "name": "Kategorien" },
+      "tags": { "name": "Tags" },
+      "tools": { "name": "Werkzeuge" },
+      "cookbooks": { "name": "Kochbücher" }
+    },
+    "todo": {
+      "shopping_list": { "name": "Einkaufsliste" }
+    }
+  },
+  "services": {
+    "get_mealplan": {
+      "name": "Essensplan abrufen",
+      "description": "Gibt den Essensplan für einen Zeitraum zurück."
+    },
+    "get_recipe": {
+      "name": "Rezept abrufen",
+      "description": "Gibt ein Rezept anhand der ID oder des Slugs zurück."
+    },
+    "get_recipes": {
+      "name": "Rezepte suchen",
+      "description": "Sucht Rezepte nach Begriffen."
+    },
+    "import_recipe": {
+      "name": "Rezept importieren",
+      "description": "Importiert ein Rezept von einer URL."
+    },
+    "create_recipe": {
+      "name": "Rezept erstellen",
+      "description": "Erstellt ein neues Rezept manuell."
+    },
+    "delete_recipe": {
+      "name": "Rezept löschen",
+      "description": "Löscht ein Rezept."
+    },
+    "set_mealplan": {
+      "name": "Essensplan setzen",
+      "description": "Plant ein Gericht oder eine Notiz für ein Datum."
+    },
+    "set_random_mealplan": {
+      "name": "Zufälliges Gericht planen",
+      "description": "Wählt ein zufälliges Rezept für den Essensplan."
+    },
+    "add_recipe_to_shopping_list": {
+      "name": "Zutaten zur Einkaufsliste",
+      "description": "Fügt alle Zutaten eines Rezepts zur Einkaufsliste hinzu."
+    },
+    "get_cookbooks": {
+      "name": "Kochbücher abrufen",
+      "description": "Gibt alle Kochbücher zurück."
+    },
+    "get_shopping_list_items": {
+      "name": "Einkaufslisten-Items abrufen",
+      "description": "Gibt strukturierte Einkaufslisten-Einträge zurück."
+    }
+  }
+}

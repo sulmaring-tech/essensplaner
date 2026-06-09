@@ -1,0 +1,23 @@
+{
+  "entity": {
+    "calendar": {
+      "breakfast": { "default": "mdi:coffee" },
+      "lunch": { "default": "mdi:food" },
+      "dinner": { "default": "mdi:silverware-fork-knife" },
+      "side": { "default": "mdi:food-variant" },
+      "dessert": { "default": "mdi:cupcake" },
+      "drink": { "default": "mdi:glass-cocktail" },
+      "snack": { "default": "mdi:cookie" }
+    },
+    "sensor": {
+      "recipes": { "default": "mdi:book-open-variant" },
+      "categories": { "default": "mdi:shape" },
+      "tags": { "default": "mdi:tag-multiple" },
+      "tools": { "default": "mdi:pot-steam" },
+      "cookbooks": { "default": "mdi:notebook" }
+    },
+    "todo": {
+      "shopping_list": { "default": "mdi:cart" }
+    }
+  }
+}

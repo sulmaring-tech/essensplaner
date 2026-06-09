@@ -1,0 +1,11 @@
+{
+  "domain": "essensplaner",
+  "name": "Essensplaner",
+  "codeowners": ["@christoph-schmidt"],
+  "config_flow": true,
+  "documentation": "https://github.com/sulmaring-tech/essensplaner",
+  "integration_type": "service",
+  "iot_class": "local_polling",
+  "requirements": ["recipe-scrapers>=15.0.0"],
+  "version": "1.0.0"
+}
