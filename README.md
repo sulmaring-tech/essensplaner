@@ -109,7 +109,9 @@ Nach der Einrichtung werden automatisch erstellt:
 
 ## Web-Panel (Sidebar)
 
-Nach Installation und Neustart erscheint in der Home-Assistant-Sidebar **Essensplaner** (Icon: 🍽️).
+Nach Installation und **vollständigem Neustart** von Home Assistant erscheint in der Sidebar **Essensplaner** (Icon: 🍽️).
+
+Falls der Eintrag fehlt: **Profil (unten links) → Sidebar anpassen** und „Essensplaner“ aktivieren. Direktaufruf: `http://<deine-ha>:8123/essensplaner`
 
 | Tab | Funktionen |
 |-----|------------|

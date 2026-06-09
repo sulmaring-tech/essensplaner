@@ -27,7 +27,6 @@ CONFIG_SCHEMA = cv.empty_config_schema(DOMAIN)
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up Essensplaner."""
     async_setup_services(hass)
-    await async_register_panel(hass)
     return True
 
 
@@ -62,6 +61,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: EssensplanerConfigEntry)
         statistics_coordinator=statistics_coordinator,
     )
 
+    await async_register_panel(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
