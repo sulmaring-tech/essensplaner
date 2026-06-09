@@ -18,16 +18,15 @@ if TYPE_CHECKING:
     from .storage import EssensplanerStore
 
 TARGET_ESSENSPLANER = "essensplaner"
-TARGET_BRING = "bring"
-BRING_DOMAIN = "bring"
-BRING_PLATFORM = "bring"
+TARGET_TODO = "todo"
+TARGET_BRING = "bring"  # legacy alias for TARGET_TODO
 
 
 @dataclass(frozen=True)
 class ShoppingTarget:
     """Resolved shopping list target."""
 
-    source: Literal["essensplaner", "bring"]
+    source: Literal["essensplaner", "todo"]
     target_id: str
     name: str
     entity_id: str | None = None
@@ -47,6 +46,13 @@ def encode_target(source: str, target_id: str) -> str:
     return f"{source}:{target_id}"
 
 
+def _normalize_target_prefix(value: str) -> str:
+    """Map legacy bring targets to generic todo targets."""
+    if value.startswith(f"{TARGET_BRING}:"):
+        return f"{TARGET_TODO}:{value[len(TARGET_BRING) + 1:]}"
+    return value
+
+
 def normalize_stored_target(
     value: str | None, store: EssensplanerStore
 ) -> str | None:
@@ -58,15 +64,57 @@ def normalize_stored_target(
         return None
     if ":" not in value:
         return encode_target(TARGET_ESSENSPLANER, value)
-    return value
+    return _normalize_target_prefix(value)
 
 
 def parse_encoded_target(value: str) -> tuple[str, str]:
     """Split encoded target into source and id."""
+    value = _normalize_target_prefix(value)
     source, _, target_id = value.partition(":")
     if not target_id:
         raise ValueError(f"Invalid shopping list target: {value}")
     return source, target_id
+
+
+def _todo_registry_entries(entity_registry: er.EntityRegistry) -> list[er.RegistryEntry]:
+    """Return all todo entities from the entity registry."""
+    entries_for_domain = getattr(er, "async_entries_for_domain", None)
+    if callable(entries_for_domain):
+        return list(entries_for_domain(entity_registry, TODO_DOMAIN))
+    return [
+        entry
+        for entry in entity_registry.entities.values()
+        if entry.domain == TODO_DOMAIN
+    ]
+
+
+def _todo_entity_display_name(
+    hass: HomeAssistant,
+    entity_entry: er.RegistryEntry,
+    device_registry: dr.DeviceRegistry,
+) -> str:
+    """Return a user-facing name for a todo entity."""
+    if entity_entry.device_id:
+        device = device_registry.async_get(entity_entry.device_id)
+        if device is not None:
+            if device.name_by_user:
+                return device.name_by_user
+            if device.name:
+                return device.name
+
+    state = hass.states.get(entity_entry.entity_id)
+    if state is not None:
+        if state.name:
+            return state.name
+        friendly_name = state.attributes.get("friendly_name")
+        if friendly_name:
+            return str(friendly_name)
+
+    return (
+        entity_entry.name
+        or entity_entry.original_name
+        or entity_entry.entity_id
+    )
 
 
 def _essensplaner_targets(
@@ -94,144 +142,54 @@ def _essensplaner_targets(
     return result
 
 
-def _is_bring_todo_entity(hass: HomeAssistant, entity_entry: er.RegistryEntry) -> bool:
-    """Return whether a registry entry is a Bring todo list."""
-    if entity_entry.domain != TODO_DOMAIN:
-        return False
-    if entity_entry.platform == BRING_PLATFORM:
-        return True
-    if not entity_entry.config_entry_id:
-        return False
-    config_entry = hass.config_entries.async_get_entry(entity_entry.config_entry_id)
-    return config_entry is not None and config_entry.domain == BRING_DOMAIN
-
-
-def _bring_entity_display_name(
+def _external_todo_targets(
     hass: HomeAssistant,
-    entity_entry: er.RegistryEntry,
-    device_registry: dr.DeviceRegistry,
-) -> str:
-    """Return a user-facing name for a Bring todo entity."""
-    if entity_entry.device_id:
-        device = device_registry.async_get(entity_entry.device_id)
-        if device is not None:
-            if device.name_by_user:
-                return device.name_by_user
-            if device.name:
-                return device.name
-
-    state = hass.states.get(entity_entry.entity_id)
-    if state is not None:
-        if state.name:
-            return state.name
-        friendly_name = state.attributes.get("friendly_name")
-        if friendly_name:
-            return str(friendly_name)
-
-    return (
-        entity_entry.name
-        or entity_entry.original_name
-        or entity_entry.entity_id
-    )
-
-
-def _append_bring_target(
-    hass: HomeAssistant,
-    entity_id: str,
-    name: str,
-    *,
-    result: list[dict[str, Any]],
-    seen: set[str],
-) -> None:
-    """Append a Bring target if not already present."""
-    if entity_id in seen:
-        return
-    seen.add(entity_id)
-    result.append(
-        {
-            "id": encode_target(TARGET_BRING, entity_id),
-            "name": name,
-            "entity_id": entity_id,
-            "source": TARGET_BRING,
-        }
-    )
-
-
-def _bring_targets(hass: HomeAssistant) -> list[dict[str, Any]]:
-    """Return Bring! todo lists for the panel."""
+    excluded_entity_ids: set[str],
+) -> list[dict[str, Any]]:
+    """Return HA todo entities not already listed by Essensplaner storage."""
     entity_registry = er.async_get(hass)
     device_registry = dr.async_get(hass)
     result: list[dict[str, Any]] = []
     seen: set[str] = set()
 
-    entries_for_domain = getattr(er, "async_entries_for_domain", None)
-    if callable(entries_for_domain):
-        todo_entries = entries_for_domain(entity_registry, TODO_DOMAIN)
-    else:
-        todo_entries = [
-            entry
-            for entry in entity_registry.entities.values()
-            if entry.domain == TODO_DOMAIN
-        ]
-
-    for entity_entry in todo_entries:
-        if not _is_bring_todo_entity(hass, entity_entry):
-            continue
-        _append_bring_target(
-            hass,
-            entity_entry.entity_id,
-            _bring_entity_display_name(hass, entity_entry, device_registry),
-            result=result,
-            seen=seen,
+    def append_entity(entity_entry: er.RegistryEntry) -> None:
+        entity_id = entity_entry.entity_id
+        if entity_id in excluded_entity_ids or entity_id in seen:
+            return
+        seen.add(entity_id)
+        result.append(
+            {
+                "id": encode_target(TARGET_TODO, entity_id),
+                "name": _todo_entity_display_name(hass, entity_entry, device_registry),
+                "entity_id": entity_id,
+                "source": entity_entry.platform or TARGET_TODO,
+            }
         )
 
-    entries_for_device = getattr(dr, "async_entries_for_device", None)
-    for device in device_registry.devices.values():
-        if not any(identifier[0] == BRING_DOMAIN for identifier in device.identifiers):
-            continue
-        device_name = device.name_by_user or device.name
-        if callable(entries_for_device):
-            device_entities = entries_for_device(device_registry, device.id)
-        else:
-            device_entities = [
-                entry
-                for entry in entity_registry.entities.values()
-                if entry.device_id == device.id
-            ]
-        for entity_entry in device_entities:
-            if entity_entry.domain != TODO_DOMAIN:
-                continue
-            _append_bring_target(
-                hass,
-                entity_entry.entity_id,
-                device_name
-                or _bring_entity_display_name(hass, entity_entry, device_registry),
-                result=result,
-                seen=seen,
-            )
+    for entity_entry in _todo_registry_entries(entity_registry):
+        append_entity(entity_entry)
 
     for entity_id in hass.states.entity_ids(TODO_DOMAIN):
-        if entity_id in seen:
+        if entity_id in excluded_entity_ids or entity_id in seen:
             continue
         entity_entry = entity_registry.async_get(entity_id)
-        if entity_entry is None or not _is_bring_todo_entity(hass, entity_entry):
+        if entity_entry is None:
+            state = hass.states.get(entity_id)
+            name = state.name if state is not None else entity_id
+            seen.add(entity_id)
+            result.append(
+                {
+                    "id": encode_target(TARGET_TODO, entity_id),
+                    "name": name,
+                    "entity_id": entity_id,
+                    "source": TARGET_TODO,
+                }
+            )
             continue
-        _append_bring_target(
-            hass,
-            entity_id,
-            _bring_entity_display_name(hass, entity_entry, device_registry),
-            result=result,
-            seen=seen,
-        )
+        append_entity(entity_entry)
 
-    if not result and hass.config_entries.async_entries(BRING_DOMAIN):
-        LOGGER.info(
-            "Bring integration is configured but no todo list entities were found. "
-            "Enable Bring todo entities under Settings → Entities."
-        )
-    else:
-        LOGGER.debug("Found %d Bring shopping list(s)", len(result))
-    return sorted(result, key=lambda item: item["name"].casefold())
+    LOGGER.debug("Found %d external todo list(s)", len(result))
+    return sorted(result, key=lambda item: (item["source"], item["name"].casefold()))
 
 
 def shopping_lists_for_panel(
@@ -239,10 +197,15 @@ def shopping_lists_for_panel(
 ) -> list[dict[str, Any]]:
     """Return all selectable shopping list targets."""
     result = _essensplaner_targets(hass, entry)
+    excluded = {
+        item["entity_id"]
+        for item in result
+        if item.get("entity_id")
+    }
     try:
-        result.extend(_bring_targets(hass))
+        result.extend(_external_todo_targets(hass, excluded))
     except Exception as err:  # noqa: BLE001
-        LOGGER.warning("Bring shopping lists could not be loaded: %s", err)
+        LOGGER.warning("External todo lists could not be loaded: %s", err)
     return result
 
 
@@ -269,9 +232,9 @@ def resolve_target(
             name=shopping_list.name,
         )
 
-    if source == TARGET_BRING:
+    if source == TARGET_TODO:
         return ShoppingTarget(
-            source=TARGET_BRING,
+            source=TARGET_TODO,
             target_id=target_id,
             name=target_id,
             entity_id=target_id,
@@ -286,6 +249,7 @@ def is_valid_target(
     """Return whether encoded target exists."""
     if ":" not in encoded:
         encoded = encode_target(TARGET_ESSENSPLANER, encoded)
+    encoded = _normalize_target_prefix(encoded)
     try:
         source, target_id = parse_encoded_target(encoded)
     except ValueError:
@@ -294,10 +258,11 @@ def is_valid_target(
     if source == TARGET_ESSENSPLANER:
         return target_id in entry.runtime_data.store.data.shopping_lists
 
-    if source == TARGET_BRING:
+    if source == TARGET_TODO:
         entity_registry = er.async_get(hass)
-        entity = entity_registry.async_get(target_id)
-        return entity is not None and _is_bring_todo_entity(hass, entity)
+        if entity_registry.async_get(target_id) is not None:
+            return True
+        return hass.states.get(target_id) is not None
 
     return False
 

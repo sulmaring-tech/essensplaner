@@ -1217,12 +1217,17 @@ class PanelEssensplaner extends HTMLElement {
   }
 
   _shoppingListSourceLabel(source) {
-    return { essensplaner: "Essensplaner", bring: "Bring!" }[source] || source;
+    return {
+      essensplaner: "Essensplaner",
+      bring: "Bring!",
+      shopping_list: "Home Assistant",
+      todo: "To-do",
+    }[source] || source;
   }
 
   _renderShoppingListSelect() {
     if (!this._shoppingLists.length) {
-      return `<p class="muted">Keine Einkaufsliste vorhanden. Essensplaner-Liste oder Bring!-Integration einrichten.</p>`;
+      return `<p class="muted">Keine Einkaufsliste vorhanden. Essensplaner- oder To-do-Listen in Home Assistant einrichten.</p>`;
     }
     const selected =
       this._formVal("default-shopping-list") || this._defaultShoppingListId;
@@ -1232,7 +1237,7 @@ class PanelEssensplaner extends HTMLElement {
       if (!groups.has(source)) groups.set(source, []);
       groups.get(source).push(list);
     }
-    const sourceOrder = ["essensplaner", "bring"];
+    const sourceOrder = ["essensplaner", "bring", "shopping_list", "todo"];
     const groupHtml = sourceOrder
       .filter((source) => groups.has(source))
       .map((source) => [source, groups.get(source)])
@@ -1270,7 +1275,7 @@ class PanelEssensplaner extends HTMLElement {
         </section>
         <section class="config-card">
           <h2 class="config-title"><ha-icon icon="mdi:cart"></ha-icon> Einkaufsliste</h2>
-          <p class="muted config-hint">Liste für den Button „Einkaufsliste“ im Rezept – Essensplaner oder Bring!.</p>
+          <p class="muted config-hint">Liste für den Button „Einkaufsliste“ im Rezept – Essensplaner oder beliebige To-do-Liste in HA.</p>
           ${this._renderShoppingListSelect()}
           <div class="btn-row">
             <button type="button" class="btn primary" data-a="shopping-list-save">Einkaufsliste speichern</button>
