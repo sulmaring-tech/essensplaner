@@ -80,7 +80,7 @@ SERVICE_GET_RECIPES_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_CONFIG_ENTRY_ID): str,
         vol.Optional(ATTR_SEARCH_TERMS): str,
-        vol.Optional(ATTR_RESULT_LIMIT): vol.All(vol.Coerce(int), vol.Range(min=1, max=100)),
+        vol.Optional(ATTR_RESULT_LIMIT): vol.All(vol.Coerce(int), vol.Range(min=1, max=500)),
     }
 )
 
