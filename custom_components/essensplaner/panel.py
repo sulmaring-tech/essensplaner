@@ -10,12 +10,21 @@ from homeassistant.components import panel_custom, websocket_api
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.core import HomeAssistant, callback
 
-from .const import DOMAIN, LOGGER, PANEL_JS_URL, PANEL_STATIC_PATH, PANEL_URL_PATH
+from .const import (
+    DOMAIN,
+    LOVELACE_CARD_URL,
+    LOGGER,
+    PANEL_JS_URL,
+    PANEL_STATIC_PATH,
+    PANEL_URL_PATH,
+)
 from .meal_times import meal_times_to_api, merge_meal_times_from_api
 from .online_search import async_search_recipes_online
 from .recipe_importer import async_preview_recipe_from_url
 
 _PANEL_REGISTERED = "panel_registered"
+_STATIC_REGISTERED = "static_registered"
+_LOVELACE_CARD_REGISTERED = "lovelace_card_registered"
 _WS_REGISTERED = "ws_registered"
 
 
@@ -163,14 +172,60 @@ def _async_register_ws(hass: HomeAssistant) -> None:
     hass.data[DOMAIN][_WS_REGISTERED] = True
 
 
+async def _async_register_static(hass: HomeAssistant, www_dir: Path) -> None:
+    """Serve panel and Lovelace card JS from /essensplaner_static."""
+    if hass.data.setdefault(DOMAIN, {}).get(_STATIC_REGISTERED):
+        return
+    await hass.http.async_register_static_paths(
+        [StaticPathConfig(PANEL_STATIC_PATH, str(www_dir), False)]
+    )
+    hass.data[DOMAIN][_STATIC_REGISTERED] = True
+
+
+async def _async_register_lovelace_card(hass: HomeAssistant) -> None:
+    """Add the today-mealplan Lovelace card resource if missing."""
+    if hass.data.setdefault(DOMAIN, {}).get(_LOVELACE_CARD_REGISTERED):
+        return
+
+    async def _register() -> None:
+        from homeassistant.components.lovelace.const import DOMAIN as LOVELACE_DOMAIN
+
+        lovelace_data = hass.data.get(LOVELACE_DOMAIN)
+        if lovelace_data is None:
+            return
+
+        resources = lovelace_data.resources
+        await resources.async_get_info()
+        for item in resources.async_items():
+            if "today-mealplan-card.js" in item.get("url", ""):
+                hass.data[DOMAIN][_LOVELACE_CARD_REGISTERED] = True
+                return
+
+        await resources.async_create_item(
+            {"res_type": "module", "url": LOVELACE_CARD_URL}
+        )
+        hass.data[DOMAIN][_LOVELACE_CARD_REGISTERED] = True
+        LOGGER.info("Lovelace card resource registered: %s", LOVELACE_CARD_URL)
+
+    if "lovelace" in hass.config.components:
+        await _register()
+        return
+
+    @callback
+    def _on_component_loaded(event) -> None:
+        if event.data.get("component") != "lovelace":
+            return
+        hass.async_create_task(_register())
+
+    hass.bus.async_listen_once("component_loaded", _on_component_loaded)
+
+
 async def async_register_panel(hass: HomeAssistant) -> None:
     """Register the Essensplaner web panel once."""
     _async_register_ws(hass)
 
     entries = _panel_entries(hass)
-    if hass.data.setdefault(DOMAIN, {}).get(_PANEL_REGISTERED):
-        hass.data[DOMAIN]["panel_entries"] = entries
-        return
+    hass.data.setdefault(DOMAIN, {})["panel_entries"] = entries
 
     www_dir = Path(__file__).parent / "www"
     if not (www_dir / "panel.js").is_file():
@@ -178,9 +233,11 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         return
 
     # Static files must NOT share the frontend_url_path or /essensplaner returns 403.
-    await hass.http.async_register_static_paths(
-        [StaticPathConfig(PANEL_STATIC_PATH, str(www_dir), False)]
-    )
+    await _async_register_static(hass, www_dir)
+    await _async_register_lovelace_card(hass)
+
+    if hass.data[DOMAIN].get(_PANEL_REGISTERED):
+        return
 
     await panel_custom.async_register_panel(
         hass,

@@ -23,7 +23,11 @@ from .coordinator import (
     EssensplanerStatisticsCoordinator,
 )
 from .entity import EssensplanerEntity
-from .meal_times import get_configured_meal_times, resolve_meal_slot_times
+from .meal_times import (
+    get_configured_meal_times,
+    meal_times_to_api,
+    resolve_meal_slot_times,
+)
 from .models import MealplanEntry, Recipe, Statistics
 
 PARALLEL_UPDATES = 0
@@ -191,12 +195,15 @@ class EssensplanerTodayMealplanSensor(EssensplanerEntity, SensorEntity):
             "Samstag",
             "Sonntag",
         )
+        options = self.coordinator.config_entry.options
         return {
             "date": today.isoformat(),
             "date_label": (
                 f"{weekday_names[today.weekday()]}, "
                 f"{today.strftime('%d.%m.%Y')}"
             ),
+            "config_entry_id": self.coordinator.config_entry.entry_id,
+            "meal_times": meal_times_to_api(options),
             "meals": meals,
             "breakfast": meals[0] if len(meals) > 0 else None,
             "lunch": meals[1] if len(meals) > 1 else None,
