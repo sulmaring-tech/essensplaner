@@ -1491,15 +1491,19 @@ PanelEssensplaner._CSS = `
   .online-pick:hover .online-body strong { color: var(--primary-color); }
   .online-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .online-body strong { font-size: 0.9rem; line-height: 1.3; }
-  .dialog-preview {
-    width: min(920px, 96vw); max-height: 92vh; overflow-y: auto;
-  }
+  .dialog-preview { overflow-y: auto; }
   .preview-loading {
     display: flex; flex-direction: column; align-items: center; gap: 12px;
     padding: 12px 0 20px;
   }
   .preview-card .detail-hero { margin-bottom: 12px; }
-  .preview-sections { margin-top: 16px; }
+  .preview-sections {
+    margin-top: 16px;
+    grid-template-columns: minmax(220px, 1fr) minmax(320px, 1.5fr);
+  }
+  @media (max-width: 700px) {
+    .preview-sections { grid-template-columns: 1fr; }
+  }
   .btn.sm { padding: 7px 12px; font-size: 0.82rem; }
   .loading.compact { padding: 16px; text-align: center; }
   .dialog-wide { max-width: 520px; }
@@ -1579,6 +1583,11 @@ PanelEssensplaner._CSS = `
     border-radius: 14px; width: 100%; max-width: 420px;
     max-height: 80vh; display: flex; flex-direction: column;
     box-shadow: 0 12px 40px rgba(0,0,0,.2); padding: 20px;
+  }
+  .dialog.dialog-preview {
+    max-width: min(1080px, 96vw);
+    max-height: 92vh;
+    padding: 24px 28px;
   }
   .dialog-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
   .dialog-head h3 { margin: 0; flex: 1; }
