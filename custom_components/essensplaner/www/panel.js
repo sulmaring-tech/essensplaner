@@ -76,6 +76,7 @@ class PanelEssensplaner extends HTMLElement {
     return (
       this._mode === "create" ||
       this._mode === "edit" ||
+      this._isRecipeModalOpen() ||
       !!this._dialog ||
       this._mealTimesOpen ||
       this._inspirationOpen ||
@@ -1389,6 +1390,10 @@ class PanelEssensplaner extends HTMLElement {
 
   _paint() {
     if (!this._hass) return;
+    const scrollTops = [...this.querySelectorAll(".dialog-scroll")].map((el) => ({
+      cls: el.closest(".dialog")?.className || "",
+      top: el.scrollTop,
+    }));
     const entries = this._entries();
     const sel = entries.length > 1
       ? `<select id="entry-select" class="inp">${entries.map((e) =>
@@ -1426,6 +1431,16 @@ class PanelEssensplaner extends HTMLElement {
       ${this._renderDialog()}
       ${this._renderOnlinePreview()}
       ${this._renderRecipeModal()}`;
+    for (const { cls, top } of scrollTops) {
+      if (!top) continue;
+      for (const el of this.querySelectorAll(".dialog-scroll")) {
+        const parentCls = el.closest(".dialog")?.className || "";
+        if (parentCls === cls) {
+          el.scrollTop = top;
+          break;
+        }
+      }
+    }
   }
 }
 
