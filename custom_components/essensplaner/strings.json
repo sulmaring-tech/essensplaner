@@ -31,7 +31,7 @@
       "cookbooks": { "name": "Kochbücher" }
     },
     "todo": {
-      "shopping_list": { "name": "Einkaufsliste" }
+      "shopping_list": { "name": "{list_name}" }
     }
   },
   "services": {

@@ -93,7 +93,9 @@ class EssensplanerShoppingListEntity(EssensplanerEntity, TodoListEntity):
         """Initialize todo entity."""
         super().__init__(coordinator, list_id)
         self._list_id = list_id
-        self._attr_name = coordinator.data[list_id].shopping_list.name
+        self._attr_translation_placeholders = {
+            "list_name": coordinator.data[list_id].shopping_list.name,
+        }
 
     @property
     def shopping_list_data(self):

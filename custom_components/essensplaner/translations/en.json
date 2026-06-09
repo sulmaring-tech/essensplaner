@@ -31,7 +31,7 @@
       "cookbooks": { "name": "Cookbooks" }
     },
     "todo": {
-      "shopping_list": { "name": "Shopping list" }
+      "shopping_list": { "name": "{list_name}" }
     }
   }
 }
