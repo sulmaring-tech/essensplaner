@@ -118,14 +118,16 @@ class PanelEssensplaner extends HTMLElement {
     }
   }
 
-  async _svc(service, data = {}) {
+  async _svc(service, data = {}, returnResponse = true) {
     if (!this._entryId) throw new Error("Kein Haushalt konfiguriert");
     const res = await this._hass.callService(
       "essensplaner", service,
       { config_entry_id: this._entryId, ...data },
-      undefined, true
+      undefined,
+      true,
+      returnResponse
     );
-    return res?.response ?? res;
+    return returnResponse ? (res?.response ?? res) : res;
   }
 
   async _load() {
@@ -258,7 +260,7 @@ class PanelEssensplaner extends HTMLElement {
     this._loading = true;
     this._paint();
     try {
-      await this._svc("import_recipe", { url });
+      await this._svc("import_recipe", { url }, false);
       this._importUrl = "";
       this._notify("Rezept importiert");
       await this._load();
@@ -282,10 +284,10 @@ class PanelEssensplaner extends HTMLElement {
     this._paint();
     try {
       if (this._mode === "edit" && this._selected) {
-        await this._svc("update_recipe", { recipe_id: this._selected.id, ...payload });
+        await this._svc("update_recipe", { recipe_id: this._selected.id, ...payload }, true);
         this._notify("Rezept gespeichert");
       } else {
-        await this._svc("create_recipe", payload);
+        await this._svc("create_recipe", payload, false);
         this._notify("Rezept erstellt");
       }
       this._formDraft = null;
@@ -302,7 +304,7 @@ class PanelEssensplaner extends HTMLElement {
   async _deleteRecipe(id) {
     if (!confirm("Rezept wirklich löschen?")) return;
     try {
-      await this._svc("delete_recipe", { recipe_id: id });
+      await this._svc("delete_recipe", { recipe_id: id }, false);
       this._selected = null;
       this._notify("Rezept gelöscht");
       await this._load();
@@ -318,7 +320,7 @@ class PanelEssensplaner extends HTMLElement {
         date: this._dialog.date,
         entry_type: this._dialog.type,
         recipe_id: recipeId,
-      });
+      }, false);
       this._dialog = null;
       this._notify("Gericht geplant");
       await this._reloadPlan();
@@ -333,7 +335,7 @@ class PanelEssensplaner extends HTMLElement {
       await this._svc("clear_mealplan", {
         date: this._dialog.date,
         entry_type: this._dialog.type,
-      });
+      }, false);
       this._dialog = null;
       this._notify("Eintrag entfernt");
       await this._reloadPlan();
