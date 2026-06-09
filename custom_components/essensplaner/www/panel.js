@@ -83,6 +83,16 @@ class PanelEssensplaner extends HTMLElement {
     );
   }
 
+  _isRecipeModalOpen() {
+    return this._mode === "create" || this._mode === "edit" || (this._mode === "view" && !!this._selected);
+  }
+
+  _closeRecipeModal() {
+    this._formDraft = null;
+    this._mode = "view";
+    this._selected = null;
+  }
+
   _clickTarget(ev) {
     for (const el of ev.composedPath()) {
       if (el instanceof HTMLElement && el.dataset?.a) return el;
@@ -777,13 +787,19 @@ class PanelEssensplaner extends HTMLElement {
       const hitOverlay = ev.composedPath().some(
         (el) => el instanceof HTMLElement && el.classList?.contains("overlay")
       );
-      if (hitOverlay && (this._dialog || this._onlinePreview)) {
+      if (hitOverlay && (this._dialog || this._onlinePreview || this._isRecipeModalOpen())) {
         const onBackdrop = ev.composedPath().some(
           (el) => el instanceof HTMLElement && el.classList?.contains("overlay") && el === ev.target
         );
         if (onBackdrop) {
           this._dialog = null;
           this._onlinePreview = null;
+          if (this._mode === "edit" && this._selected) {
+            this._formDraft = null;
+            this._mode = "view";
+          } else {
+            this._closeRecipeModal();
+          }
           this._paint();
         }
       }
@@ -813,7 +829,26 @@ class PanelEssensplaner extends HTMLElement {
       return;
     }
     if (a === "edit") { this._formDraft = null; this._mode = "edit"; this._paint(); return; }
-    if (a === "cancel") { this._formDraft = null; this._mode = "view"; this._paint(); return; }
+    if (a === "cancel") {
+      this._formDraft = null;
+      if (this._mode === "edit" && this._selected) {
+        this._mode = "view";
+      } else {
+        this._closeRecipeModal();
+      }
+      this._paint();
+      return;
+    }
+    if (a === "recipe-close") {
+      if (this._mode === "edit" && this._selected) {
+        this._formDraft = null;
+        this._mode = "view";
+      } else {
+        this._closeRecipeModal();
+      }
+      this._paint();
+      return;
+    }
     if (a === "save") { await this._saveRecipe(); return; }
     if (a === "delete") { await this._deleteRecipe(t.dataset.id); return; }
     if (a === "shop") { await this._addShopping(t.dataset.id); return; }
@@ -894,7 +929,6 @@ class PanelEssensplaner extends HTMLElement {
       if (this._formDraft.image_url !== undefined) data.image_url = this._formDraft.image_url;
     }
     const previewUrl = data.image_url?.trim();
-    const title = this._mode === "edit" ? "Rezept bearbeiten" : "Neues Rezept";
     const mealChecks = MEALS.map(
       (m) => `
         <label class="meal-check">
@@ -904,8 +938,7 @@ class PanelEssensplaner extends HTMLElement {
         </label>`
     ).join("");
     return `
-      <div class="form-card">
-        <h3>${title}</h3>
+      <div class="form-inner">
         <div class="form-preview">
           ${previewUrl
             ? `<img class="form-preview-img" src="${this._esc(previewUrl)}" alt="" referrerpolicy="no-referrer">`
@@ -923,25 +956,14 @@ class PanelEssensplaner extends HTMLElement {
           <textarea class="inp" name="ingredients" rows="6">${this._esc(ingredientsText)}</textarea></label>
         <label>Zubereitung <span class="hint">(Schritte durch eine Leerzeile trennen; Zeilenumbrüche innerhalb eines Schritts bleiben erhalten)</span>
           <textarea class="inp" name="instructions" rows="8">${this._esc(instructionsText)}</textarea></label>
-        <div class="btn-row">
+        <div class="btn-row form-actions">
           <button type="button" class="btn primary" data-a="save">Speichern</button>
           <button type="button" class="btn" data-a="cancel">Abbrechen</button>
         </div>
       </div>`;
   }
 
-  _renderRecipeDetail() {
-    if (this._mode === "create" || this._mode === "edit") {
-      return this._renderForm(this._mode === "edit" ? this._selected : null);
-    }
-    const r = this._selected;
-    if (!r) {
-      return `<div class="empty-detail">
-        <ha-icon icon="mdi:book-open-page-variant"></ha-icon>
-        <p><strong>Rezept wählen</strong></p>
-        <p class="muted">Links ein Gericht anklicken oder oben per URL importieren.</p>
-      </div>`;
-    }
+  _renderRecipeDetailContent(r) {
     const ings = (r.ingredients || [])
       .map((i) => `<li>${this._esc(this._formatIngredient(i))}</li>`)
       .join("");
@@ -982,35 +1004,75 @@ class PanelEssensplaner extends HTMLElement {
       </article>`;
   }
 
+  _renderRecipeTile(r) {
+    const summary = this._recipeSummary(r);
+    const mealTags = this._recipeMealTags(r);
+    const mealHtml = mealTags.length
+      ? `<span class="tile-meals">${mealTags
+          .map((id) => `<span class="rc-meal-tag">${this._esc(this._mealTagLabel(id))}</span>`)
+          .join("")}</span>`
+      : "";
+    return `
+      <button type="button" class="recipe-tile ${this._selected?.id === r.id ? "on" : ""}" data-a="select" data-id="${r.id}">
+        <div class="tile-media">${this._renderRecipeThumb(r, "tile")}</div>
+        <div class="tile-body">
+          <strong class="tile-title">${this._esc(r.name)}</strong>
+          ${mealHtml}
+          ${summary ? `<span class="tile-meta">${this._esc(summary)}</span>` : ""}
+        </div>
+      </button>`;
+  }
+
+  _renderRecipeFormModal() {
+    const title = this._mode === "edit" ? "Rezept bearbeiten" : "Neues Rezept";
+    return `
+      <div class="overlay">
+        <div class="dialog dialog-recipe-form">
+          <div class="dialog-head">
+            <h3>${title}</h3>
+            <button type="button" class="btn icon close" data-a="recipe-close" title="Schließen">✕</button>
+          </div>
+          <div class="dialog-scroll">${this._renderForm(this._mode === "edit" ? this._selected : null)}</div>
+        </div>
+      </div>`;
+  }
+
+  _renderRecipeDetailModal() {
+    const r = this._selected;
+    if (!r) return "";
+    return `
+      <div class="overlay">
+        <div class="dialog dialog-preview dialog-recipe-view">
+          <div class="dialog-head">
+            <h3>${this._esc(r.name)}</h3>
+            <button type="button" class="btn icon close" data-a="recipe-close" title="Schließen">✕</button>
+          </div>
+          <div class="dialog-scroll">${this._renderRecipeDetailContent(r)}</div>
+        </div>
+      </div>`;
+  }
+
+  _renderRecipeModal() {
+    if (this._mode === "create" || this._mode === "edit") {
+      return this._renderRecipeFormModal();
+    }
+    if (this._mode === "view" && this._selected) {
+      return this._renderRecipeDetailModal();
+    }
+    return "";
+  }
+
   _renderRecipesTab() {
     const list = this._filtered();
-    const cards = list.length
-      ? list.map((r) => {
-          const summary = this._recipeSummary(r);
-          const mealTags = this._recipeMealTags(r);
-          const mealHtml = mealTags.length
-            ? `<span class="rc-meals">${mealTags
-                .map((id) => `<span class="rc-meal-tag">${this._esc(this._mealTagLabel(id))}</span>`)
-                .join("")}</span>`
-            : "";
-          return `
-          <button type="button" class="recipe-card ${this._selected?.id === r.id ? "on" : ""}" data-a="select" data-id="${r.id}">
-            ${this._renderRecipeThumb(r, "sm")}
-            <div class="rc-body">
-              <strong>${this._esc(r.name)}</strong>
-              ${mealHtml}
-              ${summary ? `<span class="rc-meta">${this._esc(summary)}</span>` : ""}
-              ${r.description ? `<span class="rc-desc">${this._esc(r.description).slice(0, 72)}${r.description.length > 72 ? "…" : ""}</span>` : ""}
-            </div>
-          </button>`;
-        }).join("")
-      : `<p class="muted center">Noch keine Rezepte – URL importieren oder „Neues Rezept“.</p>`;
+    const grid = list.length
+      ? `<div class="recipe-grid">${list.map((r) => this._renderRecipeTile(r)).join("")}</div>`
+      : `<p class="muted center empty-grid">Noch keine Rezepte – URL importieren oder „Neues Rezept“.</p>`;
 
     return `
       <div class="import-bar">
         <input class="inp grow" id="import-url" placeholder="Rezept-URL einfügen (z. B. Chefkoch)…" value="${this._esc(this._importUrl)}">
         <button class="btn primary" data-a="import">Importieren</button>
-        <button class="btn" data-a="new">+ Neues Rezept</button>
+        <button class="btn" data-a="new"><ha-icon icon="mdi:plus"></ha-icon> Neues Rezept</button>
       </div>
       <div class="toolbar">
         <input class="inp" id="search" placeholder="Rezepte suchen…" value="${this._esc(this._search)}">
@@ -1026,10 +1088,7 @@ class PanelEssensplaner extends HTMLElement {
         ).join("")}
       </div>
       ${this._renderInspirationSection()}
-      <div class="split">
-        <div class="recipe-list">${cards}</div>
-        <div class="recipe-detail">${this._renderRecipeDetail()}</div>
-      </div>`;
+      ${grid}`;
   }
 
   _renderMealTimesSection() {
@@ -1271,7 +1330,8 @@ class PanelEssensplaner extends HTMLElement {
       <main class="content">${body}</main>
       ${toast}
       ${this._renderDialog()}
-      ${this._renderOnlinePreview()}`;
+      ${this._renderOnlinePreview()}
+      ${this._renderRecipeModal()}`;
   }
 }
 
@@ -1305,7 +1365,7 @@ PanelEssensplaner._CSS = `
     border-bottom: 2px solid transparent; margin-bottom: -1px;
   }
   .tab.on { color: var(--primary-color); border-bottom-color: var(--primary-color); font-weight: 500; }
-  .content { padding: 20px 24px 40px; max-width: 1280px; margin: 0 auto; }
+  .content { padding: 20px 24px 40px; max-width: 1680px; margin: 0 auto; }
   .inp {
     padding: 10px 12px; border: 1px solid var(--divider-color, #ccc);
     border-radius: 8px; background: var(--card-background-color, #fff);
@@ -1330,26 +1390,41 @@ PanelEssensplaner._CSS = `
     padding: 4px 10px; border-radius: 12px; font-size: 0.85rem;
     background: var(--primary-color); color: var(--text-primary-color, #fff);
   }
-  .split { display: grid; grid-template-columns: minmax(280px, 360px) 1fr; gap: 20px; min-height: 520px; align-items: start; }
-  @media (max-width: 960px) { .split { grid-template-columns: 1fr; } }
-  .recipe-list {
-    display: flex; flex-direction: column; gap: 8px;
-    max-height: 75vh; overflow-y: auto; padding-right: 4px;
+  .recipe-grid {
+    display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px;
   }
-  .recipe-card {
-    display: flex; gap: 12px; align-items: center; width: 100%; text-align: left;
-    padding: 10px; border-radius: 12px; cursor: pointer;
+  @media (max-width: 1400px) { .recipe-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+  @media (max-width: 1100px) { .recipe-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (max-width: 760px) { .recipe-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 440px) { .recipe-grid { grid-template-columns: 1fr; } }
+  .empty-grid { grid-column: 1 / -1; padding: 32px 0; }
+  .recipe-tile {
+    display: flex; flex-direction: column; width: 100%; text-align: left;
+    padding: 0; border-radius: 12px; cursor: pointer; overflow: hidden;
     background: var(--card-background-color, #fff);
     border: 1px solid var(--divider-color, #e8e8e8);
     transition: border-color .15s, box-shadow .15s, transform .12s;
     font: inherit; color: inherit;
   }
-  .recipe-card:hover { border-color: var(--primary-color); box-shadow: 0 4px 14px rgba(0,0,0,.07); transform: translateY(-1px); }
-  .recipe-card.on { border-color: var(--primary-color); background: color-mix(in srgb, var(--primary-color) 8%, var(--card-background-color, #fff)); box-shadow: 0 2px 10px rgba(0,0,0,.06); }
+  .recipe-tile:hover { border-color: var(--primary-color); box-shadow: 0 6px 18px rgba(0,0,0,.08); transform: translateY(-2px); }
+  .recipe-tile.on { border-color: var(--primary-color); box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-color) 25%, transparent); }
+  .tile-media {
+    aspect-ratio: 4 / 3; overflow: hidden; background: var(--secondary-background-color, #eee);
+  }
+  .tile-media .recipe-thumb { width: 100%; height: 100%; border-radius: 0; object-fit: cover; }
+  .tile-media .recipe-thumb.placeholder { width: 100%; height: 100%; border-radius: 0; }
+  .tile-body { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 12px; min-width: 0; }
+  .tile-title {
+    font-size: 0.9rem; line-height: 1.35; font-weight: 600;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .tile-meals { display: flex; flex-wrap: wrap; gap: 4px; }
+  .tile-meta { font-size: 0.75rem; color: var(--primary-color); font-weight: 500; }
   .recipe-thumb {
     object-fit: cover; border-radius: 10px; flex-shrink: 0; background: var(--secondary-background-color, #f0f0f0);
   }
   .recipe-thumb.sm { width: 72px; height: 72px; }
+  .recipe-thumb.tile { width: 100%; height: 100%; border-radius: 0; }
   .recipe-thumb.xs { width: 44px; height: 44px; border-radius: 8px; }
   .recipe-thumb.hero { width: 100%; height: 100%; border-radius: 0; min-height: 220px; max-height: 320px; }
   .recipe-thumb.placeholder {
@@ -1360,12 +1435,7 @@ PanelEssensplaner._CSS = `
   .recipe-thumb.placeholder ha-icon { --mdc-icon-size: 28px; opacity: .7; }
   .recipe-thumb.placeholder.hero ha-icon { --mdc-icon-size: 56px; }
   .recipe-thumb.placeholder.sm ha-icon { --mdc-icon-size: 24px; }
-  .rc-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
-  .rc-body strong { font-size: 0.95rem; line-height: 1.3; }
-  .rc-meta { font-size: 0.78rem; color: var(--primary-color); font-weight: 500; }
-  .rc-desc { font-size: 0.8rem; color: var(--secondary-text-color); line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  .recipe-detail { min-width: 0; }
-  .detail-card, .form-card {
+  .detail-card, .form-inner {
     background: var(--card-background-color, #fff);
     border-radius: 14px; overflow: hidden;
     border: 1px solid var(--divider-color, #e8e8e8);
@@ -1449,8 +1519,7 @@ PanelEssensplaner._CSS = `
   .step-text { flex: 1; padding-top: 3px; white-space: pre-line; }
   .detail-actions { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--divider-color, #e8e8e8); }
   .detail-actions .btn ha-icon { --mdc-icon-size: 18px; }
-  .form-card { padding: 24px; }
-  .form-card h3 { margin: 0 0 16px; }
+  .form-inner { padding: 0; }
   .form-preview {
     margin-bottom: 16px; border-radius: 12px; overflow: hidden;
     aspect-ratio: 16 / 9; max-height: 200px; background: var(--secondary-background-color, #f5f5f5);
@@ -1462,14 +1531,10 @@ PanelEssensplaner._CSS = `
     gap: 8px; color: var(--secondary-text-color); font-size: 0.85rem;
   }
   .form-preview-placeholder ha-icon { --mdc-icon-size: 36px; opacity: .5; }
-  .form-card label { display: block; margin-bottom: 14px; font-size: 0.9rem; font-weight: 500; }
-  .form-card textarea { resize: vertical; }
+  .form-inner label { display: block; margin-bottom: 14px; font-size: 0.9rem; font-weight: 500; }
+  .form-inner textarea { resize: vertical; }
+  .form-actions { margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--divider-color, #e8e8e8); }
   .hint { font-weight: 400; color: var(--secondary-text-color); font-size: 0.8rem; }
-  .empty-detail {
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    height: 100%; min-height: 300px; color: var(--secondary-text-color); text-align: center; gap: 12px;
-  }
-  .empty-detail ha-icon { --mdc-icon-size: 48px; opacity: .4; }
   .meal-times-card, .inspiration-card {
     margin-bottom: 16px; padding: 14px 16px; border-radius: 12px;
     border: 1px solid var(--divider-color, #e8e8e8);
@@ -1588,6 +1653,15 @@ PanelEssensplaner._CSS = `
     max-width: min(1080px, 96vw);
     max-height: 92vh;
     padding: 24px 28px;
+  }
+  .dialog.dialog-recipe-form {
+    max-width: min(720px, 96vw);
+    max-height: 92vh;
+  }
+  .dialog-recipe-view .detail-card { border: none; box-shadow: none; }
+  .dialog-scroll {
+    overflow-y: auto; flex: 1; min-height: 0;
+    margin: 0 -4px; padding: 0 4px;
   }
   .dialog-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
   .dialog-head h3 { margin: 0; flex: 1; }
