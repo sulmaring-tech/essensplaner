@@ -156,3 +156,5 @@ PANEL_URL_PATH = "essensplaner"
 PANEL_STATIC_PATH = "/essensplaner_static"
 PANEL_JS_URL = "/essensplaner_static/panel.js"
 LOVELACE_CARD_URL = "/essensplaner_static/today-mealplan-card.js"
+LOVELACE_WEEK_CARD_URL = "/essensplaner_static/week-mealplan-card.js"
+LOVELACE_CARD_URLS = (LOVELACE_CARD_URL, LOVELACE_WEEK_CARD_URL)

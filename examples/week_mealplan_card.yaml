@@ -1,0 +1,21 @@
+# Essensplan – Wochenübersicht (7 Spalten, farbige Einträge)
+#
+# 1) Integration neu laden
+# 2) Lovelace-Ressource wird automatisch registriert:
+#      /essensplaner_static/week-mealplan-card.js
+# 3) Entity-ID anpassen (z. B. sensor.haushalt_mealplan_today)
+# 4) Farben pro Mahlzeit in colors anpassen
+
+type: custom:week-mealplan-card
+entity: sensor.haushalt_mealplan_today
+title: Essensplan
+week_start: monday
+colors:
+  breakfast: "#e67e22"
+  lunch: "#2d6a4f"
+  side_lunch: "#48cae4"
+  dinner: "#7b2cbf"
+  side_dinner: "#e07a5f"
+  dessert: "#c1121f"
+  drink: "#0077b6"
+  snack: "#f4a261"

@@ -12,7 +12,7 @@ from homeassistant.core import HomeAssistant, callback
 
 from .const import (
     DOMAIN,
-    LOVELACE_CARD_URL,
+    LOVELACE_CARD_URLS,
     LOGGER,
     MAX_RECIPES_PER_ROW,
     MIN_RECIPES_PER_ROW,
@@ -383,9 +383,7 @@ async def _async_register_static(hass: HomeAssistant, www_dir: Path) -> None:
 
 
 async def _async_register_lovelace_card(hass: HomeAssistant) -> None:
-    """Add the today-mealplan Lovelace card resource if missing."""
-    if hass.data.setdefault(DOMAIN, {}).get(_LOVELACE_CARD_REGISTERED):
-        return
+    """Add Essensplaner Lovelace card resources if missing."""
 
     async def _register() -> None:
         from homeassistant.components.lovelace.const import DOMAIN as LOVELACE_DOMAIN
@@ -396,16 +394,12 @@ async def _async_register_lovelace_card(hass: HomeAssistant) -> None:
 
         resources = lovelace_data.resources
         await resources.async_get_info()
-        for item in resources.async_items():
-            if "today-mealplan-card.js" in item.get("url", ""):
-                hass.data[DOMAIN][_LOVELACE_CARD_REGISTERED] = True
-                return
-
-        await resources.async_create_item(
-            {"res_type": "module", "url": LOVELACE_CARD_URL}
-        )
-        hass.data[DOMAIN][_LOVELACE_CARD_REGISTERED] = True
-        LOGGER.info("Lovelace card resource registered: %s", LOVELACE_CARD_URL)
+        existing_urls = [item.get("url", "") for item in resources.async_items()]
+        for url in LOVELACE_CARD_URLS:
+            if any(url in existing for existing in existing_urls):
+                continue
+            await resources.async_create_item({"res_type": "module", "url": url})
+            LOGGER.info("Lovelace card resource registered: %s", url)
 
     if "lovelace" in hass.config.components:
         await _register()
