@@ -1845,7 +1845,7 @@ class PanelEssensplaner extends HTMLElement {
             <ha-icon icon="mdi:chevron-left"></ha-icon>
           </button>
           <div class="week-label-wrap">
-            <span class="week-kicker">Essensplan</span>
+            <span class="week-kicker">Wochenplan</span>
             <span class="week-label">${weekLabel}</span>
           </div>
           <button type="button" class="btn icon week-btn" data-a="week-next" title="Nächste Woche">
@@ -2022,7 +2022,7 @@ class PanelEssensplaner extends HTMLElement {
       </header>
       <nav class="tabs">
         <button class="tab ${this._tab === "recipes" ? "on" : ""}" data-a="tab" data-tab="recipes">Rezepte</button>
-        <button class="tab ${this._tab === "plan" ? "on" : ""}" data-a="tab" data-tab="plan">Essensplan</button>
+        <button class="tab ${this._tab === "plan" ? "on" : ""}" data-a="tab" data-tab="plan">Wochenplan</button>
         <button class="tab ${this._tab === "stats" ? "on" : ""}" data-a="tab" data-tab="stats">Statistiken</button>
         <button class="tab ${this._tab === "config" ? "on" : ""}" data-a="tab" data-tab="config">Config</button>
       </nav>
