@@ -35,6 +35,62 @@ const COLOR_LABELS = {
   snack: "Snack",
 };
 
+const MEAL_ICONS = {
+  breakfast: "mdi:coffee",
+  lunch: "mdi:silverware-fork-knife",
+  side_lunch: "mdi:food-variant",
+  dinner: "mdi:food-turkey",
+  side_dinner: "mdi:food-variant",
+  dessert: "mdi:cupcake",
+  drink: "mdi:glass-cocktail",
+  snack: "mdi:cookie",
+};
+
+function formatIngredient(item) {
+  if (!item) return "";
+  if (typeof item === "string") return item;
+  const parts = [];
+  if (item.quantity != null && item.quantity !== "") {
+    parts.push(String(item.quantity).replace(".", ","));
+  }
+  if (item.unit) parts.push(item.unit);
+  if (item.name) parts.push(item.name);
+  let text = parts.join(" ").trim();
+  if (item.note) text += ` (${item.note})`;
+  return text || "";
+}
+
+function formatServings(servings) {
+  if (!servings) return null;
+  const text = String(servings).trim();
+  const match = text.match(/(\d+)/);
+  if (!match) return text;
+  const count = parseInt(match[1], 10);
+  if (Number.isNaN(count)) return text;
+  return count === 1 ? "1 Portion" : `${count} Portionen`;
+}
+
+function formatDuration(minutes) {
+  if (!minutes) return null;
+  const mins = Number(minutes);
+  if (Number.isNaN(mins) || mins <= 0) return null;
+  if (mins < 60) return `${mins} Min.`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m ? `${h} Std. ${m} Min.` : `${h} Std.`;
+}
+
+function formatDateLabel(iso) {
+  const [y, m, d] = iso.split("-").map((v) => parseInt(v, 10));
+  const date = new Date(y, m - 1, d, 12, 0, 0);
+  return date.toLocaleDateString("de-DE", {
+    weekday: "long",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
 class WeekMealplanCard extends HTMLElement {
   constructor() {
     super();
@@ -46,7 +102,9 @@ class WeekMealplanCard extends HTMLElement {
     this._fetchToken = 0;
     this._lastChanged = null;
     this._lastFetch = 0;
+    this._detail = null;
     this._onClick = this._onClick.bind(this);
+    this._onKeydown = this._onKeydown.bind(this);
   }
 
   static getStubConfig(hass) {
@@ -78,10 +136,12 @@ class WeekMealplanCard extends HTMLElement {
 
   connectedCallback() {
     this.addEventListener("click", this._onClick);
+    this.addEventListener("keydown", this._onKeydown);
   }
 
   disconnectedCallback() {
     this.removeEventListener("click", this._onClick);
+    this.removeEventListener("keydown", this._onKeydown);
   }
 
   set hass(hass) {
@@ -180,7 +240,9 @@ class WeekMealplanCard extends HTMLElement {
       grouped[item.date].push({
         entry_type: item.entry_type,
         name,
+        date: item.date,
         sort: MEAL_ORDER.indexOf(item.entry_type),
+        item,
       });
     }
     for (const date of Object.keys(grouped)) {
@@ -226,7 +288,7 @@ class WeekMealplanCard extends HTMLElement {
       if (token !== this._fetchToken) return;
       const body = this._unwrapService(res);
       const items = Array.isArray(body?.mealplan) ? body.mealplan : [];
-      this._weekData = { grouped: this._groupByDay(items), range };
+      this._weekData = { grouped: this._groupByDay(items), items, range };
       this._lastFetch = Date.now();
     } catch (err) {
       if (token !== this._fetchToken) return;
@@ -238,17 +300,30 @@ class WeekMealplanCard extends HTMLElement {
   }
 
   _changeWeek(delta) {
+    this._closeDetail();
     this._weekOffset += delta;
     this._loadWeek();
   }
 
   _goCurrentWeek() {
     if (this._weekOffset === 0) return;
+    this._closeDetail();
     this._weekOffset = 0;
     this._loadWeek();
   }
 
+  _onKeydown(ev) {
+    if (ev.key === "Escape" && this._detail) {
+      ev.preventDefault();
+      this._closeDetail();
+    }
+  }
+
   _onClick(ev) {
+    if (ev.target.classList.contains("detail-overlay")) {
+      this._closeDetail();
+      return;
+    }
     const btn = ev.target.closest("[data-action]");
     if (!btn) return;
     ev.preventDefault();
@@ -257,6 +332,140 @@ class WeekMealplanCard extends HTMLElement {
     if (action === "week-prev") this._changeWeek(-1);
     if (action === "week-next") this._changeWeek(1);
     if (action === "week-today") this._goCurrentWeek();
+    if (action === "show-detail") {
+      this._openDetail(btn.dataset.date, btn.dataset.type);
+      return;
+    }
+    if (action === "detail-close") this._closeDetail();
+  }
+
+  _findEntry(date, entryType) {
+    return (this._weekData?.items || []).find(
+      (item) => item.date === date && item.entry_type === entryType
+    );
+  }
+
+  _openDetail(date, entryType) {
+    const item = this._findEntry(date, entryType);
+    if (!item) return;
+    this._detail = { item, date, entryType };
+    this._render();
+  }
+
+  _closeDetail() {
+    if (!this._detail) return;
+    this._detail = null;
+    this._render();
+  }
+
+  _detailTitle(item) {
+    return item?.recipe?.name || item?.title || "Essensdetails";
+  }
+
+  _renderRecipeThumb(recipe) {
+    const url = recipe?.image_url;
+    if (url) {
+      return `<img class="detail-img" src="${this._esc(url)}" alt="" loading="lazy" referrerpolicy="no-referrer">`;
+    }
+    return `<div class="detail-img placeholder"><ha-icon icon="mdi:food"></ha-icon></div>`;
+  }
+
+  _renderMetaChips(recipe) {
+    if (!recipe) return "";
+    const chips = [];
+    const portions = formatServings(recipe.servings);
+    if (portions) {
+      chips.push(`<span class="meta-chip"><ha-icon icon="mdi:account-group"></ha-icon>${this._esc(portions)}</span>`);
+    }
+    const prep = formatDuration(recipe.prep_time);
+    if (prep) {
+      chips.push(`<span class="meta-chip"><ha-icon icon="mdi:knife"></ha-icon>${prep}</span>`);
+    }
+    const cook = formatDuration(recipe.cook_time);
+    if (cook) {
+      chips.push(`<span class="meta-chip"><ha-icon icon="mdi:stove"></ha-icon>${cook}</span>`);
+    }
+    if (!chips.length) return "";
+    return `<div class="meta-chips">${chips.join("")}</div>`;
+  }
+
+  _renderDetailBody(item) {
+    const recipe = item?.recipe;
+    const mealLabel = COLOR_LABELS[item.entry_type] || item.entry_type;
+    const mealIcon = MEAL_ICONS[item.entry_type] || "mdi:food";
+    const dateLabel = formatDateLabel(item.date);
+    const time =
+      item.start_time && item.end_time
+        ? `${item.start_time}–${item.end_time}`
+        : "";
+
+    if (recipe) {
+      const ings = (recipe.ingredients || [])
+        .map((i) => `<li>${this._esc(formatIngredient(i))}</li>`)
+        .join("");
+      const steps = (recipe.instructions || [])
+        .map(
+          (s, idx) =>
+            `<li><span class="step-num">${idx + 1}</span><span class="step-text">${this._esc(s)}</span></li>`
+        )
+        .join("");
+      const source = recipe.source_url
+        ? `<a class="source-link" href="${this._esc(recipe.source_url)}" target="_blank" rel="noopener">Originalrezept öffnen</a>`
+        : "";
+      return `
+        <div class="detail-hero">${this._renderRecipeThumb(recipe)}</div>
+        <div class="detail-content">
+          <p class="detail-meta">
+            <span class="meal-badge"><ha-icon icon="${mealIcon}"></ha-icon>${this._esc(mealLabel)}</span>
+            <span>${this._esc(dateLabel)}</span>
+            ${time ? `<span>${this._esc(time)}</span>` : ""}
+          </p>
+          <h3 class="detail-title">${this._esc(recipe.name)}</h3>
+          ${this._renderMetaChips(recipe)}
+          ${recipe.description ? `<p class="detail-desc">${this._esc(recipe.description)}</p>` : ""}
+          ${source}
+          <div class="detail-sections">
+            <section class="detail-panel">
+              <h4><ha-icon icon="mdi:basket"></ha-icon> Zutaten</h4>
+              <ul class="ingredient-list">${ings || "<li class='muted'>Keine Zutaten</li>"}</ul>
+            </section>
+            <section class="detail-panel">
+              <h4><ha-icon icon="mdi:pot-steam"></ha-icon> Zubereitung</h4>
+              <ol class="step-list">${steps || "<li class='muted'>Keine Schritte</li>"}</ol>
+            </section>
+          </div>
+        </div>`;
+    }
+
+    const title = item.title || "Notiz";
+    const desc = item.description || "";
+    return `
+      <div class="detail-content note-detail">
+        <p class="detail-meta">
+          <span class="meal-badge"><ha-icon icon="${mealIcon}"></ha-icon>${this._esc(mealLabel)}</span>
+          <span>${this._esc(dateLabel)}</span>
+          ${time ? `<span>${this._esc(time)}</span>` : ""}
+        </p>
+        <h3 class="detail-title">${this._esc(title)}</h3>
+        ${desc ? `<p class="detail-desc">${this._esc(desc)}</p>` : `<p class="muted">Keine weitere Beschreibung.</p>`}
+      </div>`;
+  }
+
+  _renderDetailOverlay() {
+    if (!this._detail?.item) return "";
+    const item = this._detail.item;
+    return `
+      <div class="detail-overlay" role="presentation">
+        <div class="detail-dialog" role="dialog" aria-modal="true" aria-label="${this._esc(this._detailTitle(item))}">
+          <div class="detail-head">
+            <h3>${this._esc(this._detailTitle(item))}</h3>
+            <button type="button" class="detail-close" data-action="detail-close" title="Schließen" aria-label="Schließen">
+              <ha-icon icon="mdi:close"></ha-icon>
+            </button>
+          </div>
+          <div class="detail-scroll">${this._renderDetailBody(item)}</div>
+        </div>
+      </div>`;
   }
 
   _renderDayColumn(day, entries) {
@@ -266,9 +475,11 @@ class WeekMealplanCard extends HTMLElement {
           .map((entry) => {
             const bg = colors[entry.entry_type] || colors.dinner || "#5e35b1";
             return `
-              <div class="event-block" style="--event-bg:${this._esc(bg)}">
+              <button type="button" class="event-block" style="--event-bg:${this._esc(bg)}"
+                data-action="show-detail" data-date="${this._esc(entry.date)}" data-type="${this._esc(entry.entry_type)}"
+                title="${this._esc(entry.name)} – Details anzeigen">
                 <span class="event-name">${this._esc(entry.name)}</span>
-              </div>`;
+              </button>`;
           })
           .join("")
       : `<div class="no-events">Keine Ereignisse</div>`;
@@ -393,10 +604,14 @@ class WeekMealplanCard extends HTMLElement {
         }
         .event-block {
           background: var(--event-bg, #5e35b1);
-          border-radius: 6px; padding: 8px 8px;
+          border: none; border-radius: 6px; padding: 8px 8px;
           min-height: 36px; display: flex; align-items: center;
           box-shadow: 0 1px 2px rgba(0,0,0,.18);
+          cursor: pointer; width: 100%; text-align: left;
+          font: inherit; transition: filter .15s, transform .1s;
         }
+        .event-block:hover { filter: brightness(1.08); }
+        .event-block:active { transform: scale(0.98); }
         .event-name {
           color: #fff; font-size: 0.72rem; font-weight: 600; line-height: 1.35;
           display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
@@ -409,6 +624,87 @@ class WeekMealplanCard extends HTMLElement {
         }
         .loading { display: flex; justify-content: center; padding: 40px 0; }
         .error { padding: 8px 0; color: var(--error-color, #f44336); }
+        .detail-overlay {
+          position: fixed; inset: 0; z-index: 200;
+          background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center;
+          padding: 16px; box-sizing: border-box;
+        }
+        .detail-dialog {
+          width: min(560px, 100%); max-height: min(88vh, 720px);
+          background: var(--card-background-color, #fff);
+          border-radius: 16px; box-shadow: 0 12px 40px rgba(0,0,0,.28);
+          display: flex; flex-direction: column; overflow: hidden;
+        }
+        .detail-head {
+          display: flex; align-items: center; justify-content: space-between; gap: 12px;
+          padding: 14px 16px; border-bottom: 1px solid var(--divider-color, rgba(0,0,0,.1));
+        }
+        .detail-head h3 {
+          margin: 0; font-size: 1rem; font-weight: 600;
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .detail-close {
+          border: none; background: transparent; cursor: pointer; border-radius: 50%;
+          width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center;
+          color: var(--primary-text-color); flex-shrink: 0;
+        }
+        .detail-close:hover { background: var(--secondary-background-color, rgba(0,0,0,.06)); }
+        .detail-close ha-icon { --mdc-icon-size: 22px; }
+        .detail-scroll { overflow-y: auto; flex: 1; }
+        .detail-hero { aspect-ratio: 16/9; max-height: 220px; overflow: hidden; background: var(--secondary-background-color, #eee); }
+        .detail-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .detail-img.placeholder {
+          width: 100%; height: 100%; min-height: 140px;
+          display: flex; align-items: center; justify-content: center;
+          color: var(--primary-color);
+        }
+        .detail-img.placeholder ha-icon { --mdc-icon-size: 48px; opacity: .7; }
+        .detail-content { padding: 16px 18px 20px; }
+        .detail-meta {
+          display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center;
+          margin: 0 0 10px; font-size: 0.8rem; color: var(--secondary-text-color);
+        }
+        .meal-badge {
+          display: inline-flex; align-items: center; gap: 4px; font-weight: 600;
+          color: var(--primary-color);
+        }
+        .meal-badge ha-icon { --mdc-icon-size: 16px; }
+        .detail-title { margin: 0 0 10px; font-size: 1.25rem; line-height: 1.3; }
+        .detail-desc { margin: 0 0 12px; line-height: 1.5; color: var(--primary-text-color); }
+        .meta-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+        .meta-chip {
+          display: inline-flex; align-items: center; gap: 4px;
+          font-size: 0.78rem; padding: 4px 10px; border-radius: 999px;
+          background: var(--secondary-background-color, #f0f0f0);
+          color: var(--secondary-text-color);
+        }
+        .meta-chip ha-icon { --mdc-icon-size: 14px; }
+        .source-link {
+          display: inline-block; margin-bottom: 14px; font-size: 0.85rem;
+          color: var(--primary-color);
+        }
+        .detail-sections {
+          display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+        }
+        @media (max-width: 520px) { .detail-sections { grid-template-columns: 1fr; } }
+        .detail-panel {
+          padding: 12px; border-radius: 10px;
+          background: var(--secondary-background-color, rgba(0,0,0,.04));
+        }
+        .detail-panel h4 {
+          margin: 0 0 8px; font-size: 0.85rem; display: flex; align-items: center; gap: 6px;
+        }
+        .detail-panel h4 ha-icon { --mdc-icon-size: 18px; color: var(--primary-color); }
+        .ingredient-list, .step-list { margin: 0; padding-left: 1.2rem; font-size: 0.88rem; line-height: 1.45; }
+        .step-list { list-style: none; padding-left: 0; }
+        .step-list li { display: flex; gap: 10px; margin-bottom: 10px; }
+        .step-num {
+          flex-shrink: 0; width: 22px; height: 22px; border-radius: 50%;
+          background: var(--primary-color); color: #fff;
+          font-size: 0.72rem; font-weight: 700;
+          display: inline-flex; align-items: center; justify-content: center;
+        }
+        .muted { color: var(--secondary-text-color); font-style: italic; }
       </style>
       <ha-card>
         <div class="wrap">
@@ -429,7 +725,8 @@ class WeekMealplanCard extends HTMLElement {
           </div>
           ${content}
         </div>
-      </ha-card>`;
+      </ha-card>
+      ${this._renderDetailOverlay()}`;
   }
 }
 
@@ -535,7 +832,7 @@ window.customCards = window.customCards || [];
 window.customCards.push({
   type: "week-mealplan-card",
   name: "Essensplan Woche",
-  description: "Wochenübersicht des Essensplans mit konfigurierbaren Farben",
+  description: "Wochenübersicht mit konfigurierbaren Farben – Klick zeigt Rezeptdetails",
   preview: false,
   documentationURL: "https://github.com/sulmaring-tech/essensplaner",
 });
